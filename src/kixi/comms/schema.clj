@@ -1,1 +1,61 @@
-(ns kixi.comms.schema)
+(ns kixi.comms.schema
+  (:require [clojure.spec    :as s]
+            [kixi.comms.time :as t]))
+
+(defn uuid?
+  [s]
+  (re-find #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" s))
+
+(defn semver?
+  [s]
+  (re-find #"^\d+\.\d+\.\d+$" s))
+
+(s/def :kixi.comms.message/type #{:query
+                                  :query-response
+                                  :command
+                                  :event})
+
+(s/def :kixi.comms.command/id uuid?)
+(s/def :kixi.comms.command/key keyword?)
+(s/def :kixi.comms.command/version semver?)
+(s/def :kixi.comms.command/receipt uuid?)
+(s/def :kixi.comms.command/created-at t/timestamp?)
+(s/def :kixi.comms.command/payload (constantly true))
+
+(s/def :kixi.comms.event/id uuid?)
+(s/def :kixi.comms.event/key keyword?)
+(s/def :kixi.comms.event/version semver?)
+(s/def :kixi.comms.event/created-at t/timestamp?)
+(s/def :kixi.comms.event/payload (constantly true))
+(s/def :kixi.comms.event/origin string?)
+
+(defmulti message-type :kixi.comms.message/type)
+
+(defmethod message-type :command [_]
+  (s/keys :req [:kixi.comms.message/type
+                :kixi.comms.command/id
+                :kixi.comms.command/key
+                :kixi.comms.command/version
+                :kixi.comms.command/created-at
+                :kixi.comms.command/payload]))
+
+(defmethod message-type :event [_]
+  (s/keys :req [:kixi.comms.message/type
+                :kixi.comms.event/id
+                :kixi.comms.event/key
+                :kixi.comms.event/version
+                :kixi.comms.event/created-at
+                :kixi.comms.event/payload
+                :kixi.comms.event/origin]
+          :opt [:kixi.comms.command/id]))
+
+(s/def :kixi.comms.message/message
+  (s/multi-spec message-type :kixi.comms.message/type))
+
+(s/def :kixi.comms.message/command
+  (s/and #(= (:kixi.comms.message/type %) :command)
+         :kixi.comms.message/message))
+
+(s/def :kixi.comms.message/event
+  (s/and #(= (:kixi.comms.message/type %) :event)
+         :kixi.comms.message/message))

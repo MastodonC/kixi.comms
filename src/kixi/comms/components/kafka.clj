@@ -1,17 +1,25 @@
 (ns kixi.comms.components.kafka
-  (:require [clojure.core.async :as async]
+  (:require [cheshire.core :refer [parse-string]]
+            [clojure.core.async :as async]
+            [cognitect.transit :as transit]
             [com.stuartsierra.component :as component]
-            [franzy.serialization.deserializers :as deserializers]
-            [franzy.serialization.serializers :as serializers]
-            [franzy.clients.producer.defaults :as pd]
-            [franzy.clients.producer.client :as producer]
-            [franzy.clients.consumer.defaults :as cd]
-            [franzy.clients.consumer.callbacks :as callbacks]
-            [franzy.clients.consumer.client :as consumer]
-            [franzy.clients.consumer.protocols :as cp]
+            [franzy.clients.consumer
+             [callbacks :as callbacks]
+             [client :as consumer]
+             [defaults :as cd]
+             [protocols :as cp]]
+            [franzy.clients.producer
+             [client :as producer]
+             [defaults :as pd]
+             [protocols :as pp]]
+            [franzy.serialization
+             [deserializers :as deserializers]
+             [serializers :as serializers]]
             [kixi.comms :as comms]
-            [zookeeper :as zk]
-            [cheshire.core :refer [parse-string]]))
+            [kixi.comms.time :as t]
+            [taoensso.timbre :as timbre :refer [error info]]
+            [zookeeper :as zk])
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
 
 ;; https://github.com/pingles/clj-kafka/blob/321f2d6a90a2860f4440431aa835de86a72e126d/src/clj_kafka/zk.clj#L8
 (defn brokers
@@ -32,107 +40,180 @@
         (when @z
           (zk/close @z))))))
 
-(defn listen-for-messages!
-  [consumer running? {:keys [commands events]}]
-  (async/go-loop []
-    (let [cr (cp/poll! consumer)]
-      (println "GOT SUMMET" cr))
-    (when @running?
-      (recur))))
+(defn clj->transit
+  ([m]
+   (clj->transit m :json))
+  ([m t]
+   (let [out (ByteArrayOutputStream. 4096)
+         writer (transit/writer out t)]
+     (transit/write writer m)
+     (.toString out))))
+
+(defn transit->clj
+  ([s]
+   (transit->clj s :json))
+  ([s t]
+   (let [in (ByteArrayInputStream. (.getBytes s))
+         reader (transit/reader in t)]
+     (transit/read reader))))
+
+(defmulti format-message (fn [t _ _ _ _] t))
+
+(defmethod format-message
+  :command
+  [_ command-key command-version payload _]
+  {:kixi.comms.message/type       :command
+   :kixi.comms.command/id         (str (java.util.UUID/randomUUID))
+   :kixi.comms.command/key        command-key
+   :kixi.comms.command/version    command-version
+   :kixi.comms.command/created-at (t/timestamp)
+   :kixi.comms.command/payload    payload})
+
+(defmethod format-message
+  :event
+  [_ event-key event-version payload {:keys [origin]}]
+  {:kixi.comms.message/type     :event
+   :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
+   :kixi.comms.event/key        event-key
+   :kixi.comms.event/version    event-version
+   :kixi.comms.event/created-at (t/timestamp)
+   :kixi.comms.event/payload    payload
+   :kixi.comms.event/origin     origin})
 
 (defn create-producer
-  [kill-chan in-chan broker-list]
+  [in-chan topics origin broker-list]
   (async/go
-    (let [key-serializer     (serializers/string-serializer)
-          value-serializer   (serializers/string-serializer)
-          pc                 {:bootstrap.servers broker-list}
-          po                 (pd/make-default-producer-options)
-          producer           (producer/make-producer
-                              pc
-                              key-serializer
-                              value-serializer
-                              po)]
-      (loop []
-        (let [[msg p] (async/alts! [in-chan kill-chan])]
-          (if (= p in-chan)
-            (do (prn "Sending msg:" msg)
+    (try
+      (let [key-serializer     (serializers/string-serializer)
+            value-serializer   (serializers/string-serializer)
+            pc                 {:bootstrap.servers broker-list}
+            po                 (pd/make-default-producer-options)
+            producer           (producer/make-producer
+                                pc
+                                key-serializer
+                                value-serializer
+                                po)]
+        (loop []
+          (let [msg (async/<! in-chan)]
+            (if msg
+              (let [[topic-key message-type message-version payload] msg
+                    topic     (get topics topic-key)
+                    formatted (apply format-message (conj msg {:origin origin}))
+                    rm        (pp/send-sync! producer topic nil 
+                                             (or (:kixi.comms.command/id formatted)
+                                                 (:kixi.comms.event/id formatted))
+                                             (clj->transit formatted) po)]
                 (recur))
-            (do (prn "Stopping Producer")
-                (.close producer)))))))
+              (.close producer)))))
+      (catch Exception e 
+        (error e "Producer Exception")))))
 
-  (defn create-consumer
-    [kill-chan register-chan group-id {:keys [commands events] :as topics} broker-list]
-    (async/go
-      (let [key-deserializer   (deserializers/string-deserializer)
+(defn create-consumer
+  [kill-chan out-chan group-id {:keys [commands events] :as topics} broker-list]
+  (async/go
+    (try
+      (let [timeout            500
+            key-deserializer   (deserializers/string-deserializer)
             value-deserializer (deserializers/string-deserializer)
             cc                 {:bootstrap.servers       broker-list
                                 :group.id                group-id
                                 :auto.offset.reset       :earliest
                                 :enable.auto.commit      true
-                                :auto.commit.interval.ms 1000}
+                                :auto.commit.interval.ms timeout}
             listener            (callbacks/consumer-rebalance-listener
                                  (fn [tps]
-                                   (println "topic partitions assigned:" tps))
+                                   (info "topic partitions assigned:" tps))
                                  (fn [tps]
-                                   (println "topic partitions revoked:" tps)))
+                                   (info "topic partitions revoked:" tps)))
             co                 (cd/make-default-consumer-options
                                 {:rebalance-listener-callback listener})
             consumer           (consumer/make-consumer
                                 cc
                                 key-deserializer
-                                value-deserializer)]
+                                value-deserializer)
+            running?            (atom true)]
         (cp/subscribe-to-partitions! consumer (vals topics))
+        (async/go (async/<! kill-chan) (reset! running? false))
         (loop []
-          (let [[msg p] (async/alts! [in-chan register-chan kill-chan])]
-            (condp = p
-              register-chan
-              (do (prn "Got new handler")
-                  (recur))
-              in-chan
-              (do (prn "Receiving msg:" msg)
-                  (recur))
-              kill-chan
-              (do
-                (prn "Stopping Consumer")
-                (cp/clear-subscriptions! consumer)
-                (.close consumer)))))))))
+          (let [cr (into [] (cp/poll! consumer {:poll-timeout-ms timeout}))]
+            (loop [cr' cr]
+              (when-let [process (first cr')]
+                (if @running?
+                  (do
+                    (async/put! out-chan ((comp transit->clj :value) process))
+                    (recur (rest cr')))
+                  (do
+                    (cp/commit-offsets-sync! consumer {(select-keys process [:topic :partition])
+                                                       {:offset (:offset process)
+                                                        :metadata (str "Consumer stopping - "(java.util.Date.))}}))))))
+          (if @running?
+            (recur)
+            (do
+              (cp/clear-subscriptions! consumer)
+              (.close consumer)))))
+      (catch Exception e 
+        (error e "Consumer exception")))))
 
-(defrecord Kafka [host port group-id topics]
+(defn start-listening!
+  [handlers {:keys [command event]} consumer-out-ch]
+  (async/go-loop []
+    (let [msg (async/<! consumer-out-ch)]
+      (if msg
+        (let [handlers' (get-in @handlers [(:kixi.comms.message/type msg)
+                                           (or (:kixi.comms.command/key msg)
+                                               (:kixi.comms.event/key msg))
+                                           (or (:kixi.comms.command/version msg)
+                                               (:kixi.comms.event/version msg))])]
+          (run! (fn [f] (f msg)) handlers')
+          (recur))))))
+
+(defrecord Kafka [host port group-id topics origin]
   comms/Communications
-  (send-event! [this event version payload])
-  (send-command! [this command version payload])
-  (attach-event-handler! [this event version handler])
-  (attach-command-handler! [this event version handler])
+  (send-event! [{:keys [producer-in-ch]} event version payload]
+    (when producer-in-ch
+      (async/put! producer-in-ch [:event event version payload])))
+  (send-command! [{:keys [producer-in-ch]} command version payload]
+    (when producer-in-ch
+      (async/put! producer-in-ch [:command command version payload])))
+  (attach-event-handler! [{:keys [handlers]} event version handler]
+    (swap! handlers #(update-in % [:event event version] (fn [x] (conj x handler)))))
+  (attach-command-handler! [{:keys [handlers]} command version handler]
+    (swap! handlers #(update-in % [:command command version] (fn [x] (conj x handler)))))
   component/Lifecycle
   (start [component]
-    (let [topics (or topics {:commands "command" :events "event"})
+    (let [topics (or topics {:command "command" :event "event"})
+          origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
           broker-list        (brokers host port)
-          kill-chan          (async/chan)
-          kill-mult          (async/mult kill-chan)
-          producer-kill-chan (async/chan 1)
-          consumer-kill-chan (async/chan 1)
           producer-chan      (async/chan)
-          consumer-chan      (async/chan)]
-      (async/tap kill-mult producer-kill-chan)
-      (async/tap kill-mult consumer-kill-chan)
-      (create-producer producer-kill-chan
-                       producer-chan
+          consumer-kill-chan (async/chan)
+          consumer-out-chan  (async/chan 1)
+          handlers           (atom {:command {} :event {}})]
+      (info "Starting Kafka Producer/Consumer")
+      (create-producer producer-chan
+                       topics
+                       origin
                        broker-list)
+      (start-listening! handlers topics consumer-out-chan)
       (create-consumer consumer-kill-chan
-                       consumer-chan
+                       consumer-out-chan
                        group-id
                        topics
                        broker-list)
       (assoc component
-             :kill-ch kill-chan
-             :producer-ch producer-chan
-             :consumer-ch consumer-chan
-             :broker-list broker-list)))
+             :handlers handlers
+             :producer-in-ch producer-chan
+             :consumer-kill-ch consumer-kill-chan
+             :consumer-out-ch consumer-out-chan)))
   (stop [component]
-    (let [{:keys [kill-ch]} component]
-      (async/put! kill-ch true)
+    (let [{:keys [producer-in-ch
+                  consumer-kill-ch
+                  consumer-out-ch]} component]
+      (info "Stopping Kafka Producer/Consumer")
+      (async/close! producer-in-ch)
+      (async/close! consumer-kill-ch)
+      (async/close! consumer-out-ch)
       (dissoc component
-              :kill-ch
-              :producer-ch
-              :consumer-ch
-              :broker-list))))
+              :handlers
+              :producer-in-ch
+              :consumer-kill-ch
+              :consumer-out-ch))))
