@@ -1,4 +1,4 @@
-(defproject mastodonc/kixi.comms "0.1.0-SNAPSHOT"
+(defproject kixi/kixi.comms "0.1.0"
   :description "FIXME: write description"
   :url "https://github.com/MastodonC/kixi.comms"
   :license {:name "Eclipse Public License"
@@ -15,8 +15,8 @@
   :main ^:skip-aot kixi.comms
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
-             :dev {:dependencies [[org.clojure/test.check "0.9.0"]]}
-             :repositories [["releases" {:url "https://clojars.org/repo"
-                                         :creds :gpg}]
-                            ["snapshots" {:url "https://clojars.org/repo"
-                                          :creds :gpg}]]})
+             :dev {:dependencies [[org.clojure/test.check "0.9.0"]]}}
+  :repositories [["releases" {:url "https://clojars.org/repo"
+                              :creds :gpg}]
+                 ["snapshots" {:url "https://clojars.org/repo"
+                               :creds :gpg}]])
