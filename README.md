@@ -1,51 +1,20 @@
 # kixi.comms
 
-FIXME: description
+Library which provides a common communications model (protocol & implementations) for microservices inside the Kixi architecture
 
-## Installation
+## Tests
 
-This project uses submodules so you will need to fetch these:
-
-``` bash
-git submodule init
-git submodule update
-```
-
-To run tests, you need `kafka-docker` running:
+To run tests, you need Kafka and Zookeeper running which are provided by `docker-compose.yml`
 
 ``` bash
-cd submodules/kafka-docker
 docker-compose up -d
+... wait a few seconds ...
 lein test
 ```
 
-Download from http://example.com/FIXME.
-
-## Usage
-
-FIXME: explanation
-
-    $ java -jar kixi.comms-0.1.0-standalone.jar [args]
-
-## Options
-
-FIXME: listing of options this app accepts.
-
-## Examples
-
-...
-
-### Bugs
-
-...
-
-### Any Other Sections
-### That You Think
-### Might be Useful
-
 ## License
 
-Copyright © 2016 FIXME
+Copyright © 2016 Mastodon C
 
 Distributed under the Eclipse Public License either version 1.0 or (at
 your option) any later version.
