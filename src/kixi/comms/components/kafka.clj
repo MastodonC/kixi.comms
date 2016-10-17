@@ -154,11 +154,11 @@
                 (async/<! (async/thread
                             (try
                               (handler msg)
-                              (catch Exception e 
+                              (catch Exception e
                                 (error e "Consumer exception")))))
-                (cp/commit-offsets-sync! consumer {(select-keys raw-msg [:topic :partition])
-                                                   {:offset (inc (:offset raw-msg))
-                                                    :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
+                (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
+                                                    {:offset (inc (:offset raw-msg))
+                                                     :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
         (if-not (= port kill-chan)
           (recur)
           (do
