@@ -33,12 +33,12 @@
 
 (defn wait-for-atom
   ([a]
-   (wait-for-atom a 10))
+   (wait-for-atom a 65))
   ([a tries]
-   (wait-for-atom a tries 100))
+   (wait-for-atom a tries 500))
   ([a tries ms]
    (wait-for-atom a tries ms identity))
- ([a tries ms predicate]
+  ([a tries ms predicate]
    (loop [try tries]
      (when (pos? try)
        (if (and @a
@@ -47,6 +47,32 @@
          (do
            (Thread/sleep ms)
            (recur (dec try))))))))
+
+(defn reset-as-event!
+  [a cmd]
+  (reset! a cmd)
+  {:kixi.comms.event/key (-> (or (:kixi.comms.command/key cmd)
+                                 (:kixi.comms.event/key cmd))
+                             (str)
+                             (subs 1)
+                             (str "-event")
+                             (keyword))
+   :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
+                                 (:kixi.comms.event/version cmd))
+   :kixi.comms.event/payload cmd})
+
+(defn swap-conj-as-event!
+  [a cmd]
+  (swap! a conj cmd)
+  {:kixi.comms.event/key (-> (or (:kixi.comms.command/key cmd)
+                                 (:kixi.comms.event/key cmd))
+                             (str)
+                             (subs 1)
+                             (str "-event")
+                             (keyword))
+   :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
+                                 (:kixi.comms.event/version cmd))
+   :kixi.comms.event/payload cmd})
 
 (deftest formatting-tests
   (is (not
@@ -60,21 +86,58 @@
   (let [bl (first (brokers zookeeper-ip zookeeper-port))]
     (is (re-find #"\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}:\d{4,5}" bl))))
 
+(deftest handle-result-tests
+  (is (successful? (handle-result (:kafka @system)
+                                  :command {:kixi.comms.event/key :received-result
+                                            :kixi.comms.event/version "1.0.0"
+                                            :kixi.comms.event/payload {}})))
+  (is (successful? (handle-result (:kafka @system)
+                                  :event {:kixi.comms.event/key :received-result
+                                          :kixi.comms.event/version "1.0.0"
+                                          :kixi.comms.event/payload {}})))
+  (is (successful? (handle-result (:kafka @system)
+                                  :event [{:kixi.comms.event/key :received-result
+                                           :kixi.comms.event/version "1.0.0"
+                                           :kixi.comms.event/payload {}}
+                                          {:kixi.comms.event/key :received-result2
+                                           :kixi.comms.event/version "1.0.0"
+                                           :kixi.comms.event/payload {}}])))
+  (is (successful? (handle-result (:kafka @system)
+                                  :event nil)))
+  (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
+                        (handle-result (:kafka @system)
+                                       :command nil)))
+  (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
+                        (handle-result (:kafka @system)
+                                       :command 123)))
+  (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
+                        (handle-result (:kafka @system)
+                                       :command {:foo 123})))
+  (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
+                        (handle-result (:kafka @system)
+                                       :event {:foo 123})))
+  (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
+                        (handle-result (:kafka @system)
+                                       :event [{:foo 123}
+                                               {:kixi.comms.event/key :received-result
+                                                :kixi.comms.event/version "1.0.0"
+                                                :kixi.comms.event/payload {}}]))))
+
 (deftest command-roundtrip-test
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! (:kafka @system) :component-a :test/foo "1.0.0" (partial reset! result))
+    (comms/attach-command-handler! (:kafka @system) :component-a :test/foo "1.0.0" (partial reset-as-event! result))
     (comms/send-command! (:kafka @system) :test/foo "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 20 500)
+    (wait-for-atom result)
     (is @result)
     (is (= id (get-in @result [:kixi.comms.command/payload :id])))))
 
 (deftest event-roundtrip-test
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-b :test/foo-b "1.0.0" (partial reset! result))
+    (comms/attach-event-handler! (:kafka @system) :component-b :test/foo-b "1.0.0" (partial reset-as-event! result))
     (comms/send-event! (:kafka @system) :test/foo-b "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 20 500)
+    (wait-for-atom result)
     (is @result)
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))))
 
@@ -82,10 +145,10 @@
   (let [result (atom nil)
         fail (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-c :test/foo-c "1.0.0" (partial reset! result))
-    (comms/attach-event-handler! (:kafka @system) :component-d :test/foo-c "1.0.1" (partial reset! fail))
+    (comms/attach-event-handler! (:kafka @system) :component-c :test/foo-c "1.0.0" (partial reset-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :component-d :test/foo-c "1.0.1" (partial reset-as-event! fail))
     (comms/send-event! (:kafka @system) :test/foo-c "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 20 500)
+    (wait-for-atom result)
     (is (not @fail))
     (is @result)
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))))
@@ -94,10 +157,25 @@
 (deftest multiple-handlers-get-same-message
   (let [result (atom [])
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-e :test/foo-e "1.0.0" (partial swap! result conj))
-    (comms/attach-event-handler! (:kafka @system) :component-f :test/foo-e "1.0.0" (partial swap! result conj))
+    (comms/attach-event-handler! (:kafka @system) :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/send-event! (:kafka @system) :test/foo-e "1.0.0" {:foo "123" :id id})
     (wait-for-atom result 65 500 #(<= 2 (count %)))
     (is @result)
     (is (= 2 (count @result)))
     (is (= (first @result) (second @result)))))
+
+(deftest roundtrip-command->event
+  (let [c-result (atom nil)
+        e-result (atom nil)
+        id (str (java.util.UUID/randomUUID))]
+    (comms/attach-command-handler! (:kafka @system) :component-g :test/test-a "1.0.0" (partial reset-as-event! c-result))
+    (comms/attach-event-handler! (:kafka @system) :component-h :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil))
+    (comms/send-command! (:kafka @system) :test/test-a "1.0.0" {:foo "123" :id id})
+    (wait-for-atom c-result)
+    (wait-for-atom e-result)
+    (is @c-result)
+    (is @e-result)
+    (is (= id (get-in @c-result [:kixi.comms.command/payload :id])))
+    (is (= id (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/payload :id])))
+    (is (= :test/test-a (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/key])))))

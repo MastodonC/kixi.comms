@@ -59,3 +59,14 @@
 (s/def :kixi.comms.message/event
   (s/and #(= (:kixi.comms.message/type %) :event)
          :kixi.comms.message/message))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+(s/def ::partial-event
+  (s/keys :req [:kixi.comms.event/key
+                :kixi.comms.event/version
+                :kixi.comms.event/payload]))
+
+(s/def ::event-result
+  (s/or :result ::partial-event
+        :results (s/coll-of ::partial-event)))
