@@ -1,4 +1,4 @@
-(defproject kixi/kixi.comms "0.1.1"
+(defproject kixi/kixi.comms "0.1.2-SNAPSHOT"
   :description "FIXME: write description"
   :url "https://github.com/MastodonC/kixi.comms"
   :license {:name "Eclipse Public License"
