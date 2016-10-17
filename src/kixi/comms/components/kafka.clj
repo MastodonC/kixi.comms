@@ -155,7 +155,7 @@
                             (try
                               (handler msg)
                               (catch Exception e
-                                (error e "Consumer exception")))))
+                                (error e (str "Consumer exception processing msg. Raw: " raw-msg ". Demarshalled: " msg))))))
                 (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
                                                     {:offset (inc (:offset raw-msg))
                                                      :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
