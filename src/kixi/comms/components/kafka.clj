@@ -1,5 +1,6 @@
 (ns kixi.comms.components.kafka
   (:require [cheshire.core :refer [parse-string]]
+            [clojure.spec :as s]
             [clojure.core.async :as async]
             [cognitect.transit :as transit]
             [com.stuartsierra.component :as component]
@@ -17,6 +18,7 @@
              [serializers :as serializers]]
             [kixi.comms :as comms]
             [kixi.comms.time :as t]
+            [kixi.comms.schema :as ks]
             [taoensso.timbre :as timbre :refer [error info]]
             [zookeeper :as zk])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
@@ -99,30 +101,45 @@
               (let [[topic-key message-type message-version payload] msg
                     topic     (get topics topic-key)
                     formatted (apply format-message (conj msg {:origin origin}))
-                    rm        (pp/send-sync! producer topic nil 
+                    rm        (pp/send-sync! producer topic nil
                                              (or (:kixi.comms.command/id formatted)
                                                  (:kixi.comms.event/id formatted))
                                              (clj->transit formatted) po)]
                 (recur))
               (.close producer)))))
-      (catch Exception e 
+      (catch Exception e
         (error e "Producer Exception")))))
 
-(defn process-msg
-  [msg-type event version msg]
-  (and
-   (= msg-type 
-      (:kixi.comms.message/type msg))
-   (= event
-      (or (:kixi.comms.command/key msg)
-          (:kixi.comms.event/key msg)))
-   (= version 
-      (or (:kixi.comms.command/version msg)
-          (:kixi.comms.event/version msg)))))
+(defn process-msg?
+  [msg-type event version]
+  (fn [msg]
+    (and
+     (= msg-type
+        (:kixi.comms.message/type msg))
+     (= event
+        (or (:kixi.comms.command/key msg)
+            (:kixi.comms.event/key msg)))
+     (= version
+        (or (:kixi.comms.command/version msg)
+            (:kixi.comms.event/version msg))))))
+
+(defn handle-result
+  [kafka msg-type result]
+  (when (or (= msg-type :command)
+            result)
+    (when-not (s/valid? ::ks/event-result result)
+      (throw (Exception. (str "Handler must return a valid event result: "
+                              (s/explain-data ::ks/event-result result))))))
+  (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
+                                   kixi.comms.event/version
+                                   kixi.comms.event/payload] :as f}]
+            (comms/send-event! kafka key version payload))]
+    (if (sequential? result)
+      (run! send-event-fn! result)
+      (send-event-fn! result))))
 
 (defn create-consumer
-  [kill-chan group-id {:keys [commands events] :as topics} broker-list 
-   msg-type event version handler]
+  [handle-result-fn process-msg?-fn kill-chan group-id topics broker-list handler]
   (let [timeout 100
         cc {:bootstrap.servers       broker-list
             :group.id                group-id
@@ -142,7 +159,7 @@
                   (deserializers/string-deserializer))
         _ (cp/subscribe-to-partitions! consumer (vals topics))]
     (async/go-loop []
-      (let [[val port] (async/alts! [(async/thread 
+      (let [[val port] (async/alts! [(async/thread
                                        (cp/poll! consumer {:poll-timeout-ms timeout}))
                                      kill-chan])]
         (when-not (= port kill-chan)
@@ -150,12 +167,12 @@
             (when-let [msg (some-> raw-msg
                                    :value
                                    transit->clj)]
-              (when (process-msg msg-type event version msg)
+              (when (process-msg?-fn msg)
                 (async/<! (async/thread
                             (try
-                              (handler msg)
+                              (handle-result-fn (handler msg))
                               (catch Exception e
-                                (error e (str "Consumer exception processing msg. Raw: " raw-msg ". Demarshalled: " msg))))))
+                                (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg))))))
                 (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
                                                     {:offset (inc (:offset raw-msg))
                                                      :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
@@ -165,20 +182,7 @@
             (cp/clear-subscriptions! consumer)
             (.close consumer)))))))
 
-(defn start-listening!
-  [handlers {:keys [command event]} consumer-out-ch]
-  (async/go-loop []
-    (let [msg (async/<! consumer-out-ch)]
-      (if msg
-        (let [handlers' (get-in @handlers [(:kixi.comms.message/type msg)
-                                           (or (:kixi.comms.command/key msg)
-                                               (:kixi.comms.event/key msg))
-                                           (or (:kixi.comms.command/version msg)
-                                               (:kixi.comms.event/version msg))])]
-          (run! (fn [f] (f msg)) handlers')
-          (recur))))))
-
-(defrecord Kafka [host port topics origin 
+(defrecord Kafka [host port topics origin
                   consumer-kill-ch consumer-kill-mult broker-list]
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
@@ -187,27 +191,25 @@
   (send-command! [{:keys [producer-in-ch]} command version payload]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload])))
-  (attach-event-handler! [_ group-id event version handler]
+  (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer kill-chan
+      (create-consumer (partial handle-result this :event)
+                       (process-msg? :event event version)
+                       kill-chan
                        group-id
                        topics
                        broker-list
-                       :event
-                       event
-                       version
                        handler)))
-  (attach-command-handler! [_ group-id command version handler]
+  (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer kill-chan
+      (create-consumer (partial handle-result this :command)
+                       (process-msg? :command command version)
+                       kill-chan
                        group-id
                        topics
                        broker-list
-                       :command
-                       command
-                       version
                        handler)))
   component/Lifecycle
   (start [component]
@@ -236,8 +238,8 @@
       (async/close! producer-in-ch)
       (async/close! consumer-kill-ch)
       (dissoc component
-              :topics 
-              :origin 
+              :topics
+              :origin
               :broker-list
               :producer-in-ch
               :consumer-kill-ch
