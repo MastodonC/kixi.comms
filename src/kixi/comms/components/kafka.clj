@@ -127,8 +127,8 @@
   (when (or (= msg-type :command)
             result)
     (when-not (s/valid? ::ks/event-result result)
-      (throw (Exception. (str "Handler must return a valid event result: " (s/explain-data
-                                                                            ::ks/partial-event result))))))
+      (throw (Exception. (str "Handler must return a valid event result: "
+                              (s/explain-data ::ks/event-result result))))))
   (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
                                    kixi.comms.event/version
                                    kixi.comms.event/payload] :as f}]
