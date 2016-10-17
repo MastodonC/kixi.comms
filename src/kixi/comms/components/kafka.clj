@@ -145,20 +145,20 @@
       (let [[val port] (async/alts! [(async/thread 
                                        (cp/poll! consumer {:poll-timeout-ms timeout}))
                                      kill-chan])]
-        (try
-          (when-not (= port kill-chan)
-            (doseq [raw-msg (into [] val)]
-              (when-let [msg (some-> raw-msg
-                                     :value
-                                     transit->clj)]
-                (when (process-msg msg-type event version msg)
-                  (async/<! (async/thread
-                              (handler msg)))
-                  (cp/commit-offsets-sync! consumer {(select-keys raw-msg [:topic :partition])
-                                                     {:offset (inc (:offset raw-msg))
-                                                      :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
-          (catch Exception e 
-            (error e "Consumer exception")))
+        (when-not (= port kill-chan)
+          (doseq [raw-msg (into [] val)]
+            (when-let [msg (some-> raw-msg
+                                   :value
+                                   transit->clj)]
+              (when (process-msg msg-type event version msg)
+                (async/<! (async/thread
+                            (try
+                              (handler msg)
+                              (catch Exception e 
+                                (error e "Consumer exception")))))
+                (cp/commit-offsets-sync! consumer {(select-keys raw-msg [:topic :partition])
+                                                   {:offset (inc (:offset raw-msg))
+                                                    :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
         (if-not (= port kill-chan)
           (recur)
           (do
