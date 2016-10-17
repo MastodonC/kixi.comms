@@ -110,17 +110,18 @@
       (catch Exception e
         (error e "Producer Exception")))))
 
-(defn process-msg
-  [msg-type event version msg]
-  (and
-   (= msg-type
-      (:kixi.comms.message/type msg))
-   (= event
-      (or (:kixi.comms.command/key msg)
-          (:kixi.comms.event/key msg)))
-   (= version
-      (or (:kixi.comms.command/version msg)
-          (:kixi.comms.event/version msg)))))
+(defn process-msg?
+  [msg-type event version]
+  (fn [msg]
+    (and
+     (= msg-type
+        (:kixi.comms.message/type msg))
+     (= event
+        (or (:kixi.comms.command/key msg)
+            (:kixi.comms.event/key msg)))
+     (= version
+        (or (:kixi.comms.command/version msg)
+            (:kixi.comms.event/version msg))))))
 
 (defn handle-result
   [kafka msg-type result]
@@ -138,8 +139,7 @@
       (send-event-fn! result))))
 
 (defn create-consumer
-  [kafka kill-chan group-id {:keys [commands events] :as topics} broker-list
-   msg-type event version handler]
+  [handle-result-fn process-msg?-fn kill-chan group-id topics broker-list handler]
   (let [timeout 100
         cc {:bootstrap.servers       broker-list
             :group.id                group-id
@@ -167,10 +167,10 @@
             (when-let [msg (some-> raw-msg
                                    :value
                                    transit->clj)]
-              (when (process-msg msg-type event version msg)
+              (when (process-msg?-fn msg)
                 (async/<! (async/thread
                             (try
-                              (handle-result kafka msg-type (handler msg))
+                              (handle-result-fn (handler msg))
                               (catch Exception e
                                 (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg))))))
                 (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
@@ -181,19 +181,6 @@
           (do
             (cp/clear-subscriptions! consumer)
             (.close consumer)))))))
-
-(defn start-listening!
-  [handlers {:keys [command event]} consumer-out-ch]
-  (async/go-loop []
-    (let [msg (async/<! consumer-out-ch)]
-      (if msg
-        (let [handlers' (get-in @handlers [(:kixi.comms.message/type msg)
-                                           (or (:kixi.comms.command/key msg)
-                                               (:kixi.comms.event/key msg))
-                                           (or (:kixi.comms.command/version msg)
-                                               (:kixi.comms.event/version msg))])]
-          (run! (fn [f] (f msg)) handlers')
-          (recur))))))
 
 (defrecord Kafka [host port topics origin
                   consumer-kill-ch consumer-kill-mult broker-list]
@@ -207,26 +194,22 @@
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer this
+      (create-consumer (partial handle-result this :event)
+                       (process-msg? :event event version)
                        kill-chan
                        group-id
                        topics
                        broker-list
-                       :event
-                       event
-                       version
                        handler)))
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer this
+      (create-consumer (partial handle-result this :command)
+                       (process-msg? :command command version)
                        kill-chan
                        group-id
                        topics
                        broker-list
-                       :command
-                       command
-                       version
                        handler)))
   component/Lifecycle
   (start [component]
