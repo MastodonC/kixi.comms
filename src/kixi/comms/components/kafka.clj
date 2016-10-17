@@ -152,7 +152,8 @@
                                      :value
                                      transit->clj)]
                 (when (process-msg msg-type event version msg)
-                  (handler msg)
+                  (async/<! (async/thread
+                              (handler msg)))
                   (cp/commit-offsets-sync! consumer {(select-keys raw-msg [:topic :partition])
                                                      {:offset (inc (:offset raw-msg))
                                                       :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
