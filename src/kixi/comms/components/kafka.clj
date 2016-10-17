@@ -140,50 +140,63 @@
 
 (defn create-consumer
   [handle-result-fn process-msg?-fn kill-chan group-id topics broker-list handler]
-  (let [timeout 100
-        cc {:bootstrap.servers       broker-list
-            :group.id                group-id
-            :auto.offset.reset       :earliest
-            :enable.auto.commit      false
-            :auto.commit.interval.ms timeout}
-        listener (callbacks/consumer-rebalance-listener
-                  (fn [tps]
-                    (info "topic partitions assigned:" tps))
-                  (fn [tps]
-                    (info "topic partitions revoked:" tps)))
-        co (cd/make-default-consumer-options
-            {:rebalance-listener-callback listener})
-        consumer (consumer/make-consumer
-                  cc
-                  (deserializers/string-deserializer)
-                  (deserializers/string-deserializer))
-        _ (cp/subscribe-to-partitions! consumer (vals topics))]
-    (async/go-loop []
-      (let [[val port] (async/alts! [(async/thread
-                                       (cp/poll! consumer {:poll-timeout-ms timeout}))
-                                     kill-chan])]
-        (when-not (= port kill-chan)
-          (doseq [raw-msg (into [] val)]
-            (when-let [msg (some-> raw-msg
-                                   :value
-                                   transit->clj)]
-              (when (process-msg?-fn msg)
-                (async/<! (async/thread
-                            (try
-                              (handle-result-fn (handler msg))
-                              (catch Exception e
-                                (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg))))))
-                (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
-                                                    {:offset (inc (:offset raw-msg))
-                                                     :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
-        (if-not (= port kill-chan)
-          (recur)
-          (do
-            (cp/clear-subscriptions! consumer)
-            (.close consumer)))))))
+  (async/thread-call
+   #(try
+      (let [timeout 100
+            session-timeout 30000
+            heartbeat (- session-timeout 5000)
+            cc {:bootstrap.servers       broker-list
+                :group.id                group-id
+                :auto.offset.reset       :earliest
+                :enable.auto.commit      true
+                :auto.commit.interval.ms timeout
+                :session.timeout.ms session-timeout
+                :max.poll.records 10}
+            listener (callbacks/consumer-rebalance-listener
+                      (fn [tps]
+                        (info "topic partitions assigned:" tps))
+                      (fn [tps]
+                        (info "topic partitions revoked:" tps)))
+            co (cd/make-default-consumer-options
+                {:rebalance-listener-callback listener})
+            consumer (consumer/make-consumer
+                      cc
+                      (deserializers/string-deserializer)
+                      (deserializers/string-deserializer))
+            _ (cp/subscribe-to-partitions! consumer (vals topics)) ;Why are we subscribing to both topics?
+            topic-partitions (cp/assigned-partitions consumer)] ;this returns nothing... how do we get our partition assignment?
+        (loop []
+          (let [pack (cp/poll! consumer {:poll-timeout-ms timeout})]         
+            (doseq [raw-msg (into [] pack)]
+              (when-let [msg (some-> raw-msg
+                                     :value
+                                     transit->clj)]
+                (when (process-msg?-fn msg)
+                  (cp/pause! consumer topic-partitions)
+                  (let [result-ch (async/thread
+                                    (try
+                                      (handle-result-fn (handler msg))
+                                      (catch Exception e
+                                        (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg)))))]
+                    (loop []
+                      (let [[val port] (async/alts!! [result-ch
+                                                      (async/timeout heartbeat)])]
+                        (when-not (= port
+                                     result-ch)
+                          (cp/poll! consumer {:poll-timeout-ms timeout})
+                          (recur)))))
+                  (cp/resume! consumer topic-partitions))))
+            (if-not (async/poll! kill-chan)
+              (recur)
+              (do
+                (cp/clear-subscriptions! consumer)
+                (.close consumer)
+                :done)))))
+      (catch Exception e
+        (error e (str "Consumer for " group-id " has died"))))))
 
 (defrecord Kafka [host port topics origin
-                  consumer-kill-ch consumer-kill-mult broker-list]
+                  consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
     (when producer-in-ch
@@ -194,23 +207,25 @@
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer (partial handle-result this :event)
-                       (process-msg? :event event version)
-                       kill-chan
-                       group-id
-                       topics
-                       broker-list
-                       handler)))
+      (->> (create-consumer (partial handle-result this :event)
+                            (process-msg? :event event version)
+                            kill-chan
+                            group-id
+                            topics
+                            broker-list
+                            handler)
+           (swap! consumer-loops conj))))
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer (partial handle-result this :command)
-                       (process-msg? :command command version)
-                       kill-chan
-                       group-id
-                       topics
-                       broker-list
-                       handler)))
+      (->> (create-consumer (partial handle-result this :command)
+                            (process-msg? :command command version)
+                            kill-chan
+                            group-id
+                            topics
+                            broker-list
+                            handler)
+           (swap! consumer-loops conj))))
   component/Lifecycle
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
@@ -228,6 +243,7 @@
              :topics topics
              :origin origin
              :broker-list broker-list
+             :consumer-loops (atom [])
              :producer-in-ch producer-chan
              :consumer-kill-ch consumer-kill-chan
              :consumer-kill-mult consumer-kill-mult)))
@@ -236,7 +252,9 @@
                   consumer-kill-ch]} component]
       (info "Stopping Kafka Producer/Consumer")
       (async/close! producer-in-ch)
-      (async/close! consumer-kill-ch)
+      (async/>!! consumer-kill-ch :done)
+      (doseq [c @consumer-loops]
+        (async/<!! c))
       (dissoc component
               :topics
               :origin
