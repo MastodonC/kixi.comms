@@ -4,6 +4,7 @@
              [test :refer :all]]
             [com.stuartsierra.component :as component]
             [kixi.comms :as comms]
+            [kixi.comms.schema]
             [kixi.comms.components.kafka :refer :all]))
 
 (def zookeeper-ip "127.0.0.1")

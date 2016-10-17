@@ -123,48 +123,46 @@
 (defn create-consumer
   [kill-chan group-id {:keys [commands events] :as topics} broker-list 
    msg-type event version handler]
-  (async/go
-    (try
-      (let [timeout            100
-            key-deserializer   (deserializers/string-deserializer)
-            value-deserializer (deserializers/string-deserializer)
-            cc                 {:bootstrap.servers       broker-list
-                                :group.id                group-id
-                                :auto.offset.reset       :earliest
-                                :enable.auto.commit      false
-                                :auto.commit.interval.ms timeout}
-            listener            (callbacks/consumer-rebalance-listener
-                                 (fn [tps]
-                                   (info "topic partitions assigned:" tps))
-                                 (fn [tps]
-                                   (info "topic partitions revoked:" tps)))
-            co                 (cd/make-default-consumer-options
-                                {:rebalance-listener-callback listener})
-           
-            running?            (atom true)]
-        (async/go (async/<! kill-chan) (reset! running? false))
-        (with-open  [consumer (consumer/make-consumer
-                               cc
-                               key-deserializer
-                               value-deserializer)]
-          (cp/subscribe-to-partitions! consumer (vals topics))
-          (loop []
-            (let [cr (into [] (cp/poll! consumer {:poll-timeout-ms timeout}))]              
-              (loop [cr' cr]
-                (when-let [process (some identity cr')]
-                  (when @running?    
-                    (let [msg ((comp transit->clj :value) process)]
-                      (when (process-msg msg-type event version msg)
-                        (handler msg))
-                      (cp/commit-offsets-sync! consumer {(select-keys process [:topic :partition])
-                                                         {:offset (inc (:offset process))
-                                                          :metadata (str "Consumer stopping - "(java.util.Date.))}})
-                      (recur (rest cr')))))))
-            (if @running?
-              (recur)
-              (cp/clear-subscriptions! consumer)))))
-      (catch Exception e 
-        (error e "Consumer exception")))))
+  (let [timeout 100
+        cc {:bootstrap.servers       broker-list
+            :group.id                group-id
+            :auto.offset.reset       :earliest
+            :enable.auto.commit      false
+            :auto.commit.interval.ms timeout}
+        listener (callbacks/consumer-rebalance-listener
+                  (fn [tps]
+                    (info "topic partitions assigned:" tps))
+                  (fn [tps]
+                    (info "topic partitions revoked:" tps)))
+        co (cd/make-default-consumer-options
+            {:rebalance-listener-callback listener})
+        consumer (consumer/make-consumer
+                  cc
+                  (deserializers/string-deserializer)
+                  (deserializers/string-deserializer))
+        _ (cp/subscribe-to-partitions! consumer (vals topics))]
+    (async/go-loop []
+      (let [[val port] (async/alts! [(async/thread 
+                                       (cp/poll! consumer {:poll-timeout-ms timeout}))
+                                     kill-chan])]
+        (try
+          (when-not (= port kill-chan)
+            (doseq [raw-msg (into [] val)]
+              (when-let [msg (some-> raw-msg
+                                     :value
+                                     transit->clj)]
+                (when (process-msg msg-type event version msg)
+                  (handler msg)
+                  (cp/commit-offsets-sync! consumer {(select-keys raw-msg [:topic :partition])
+                                                     {:offset (inc (:offset raw-msg))
+                                                      :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
+          (catch Exception e 
+            (error e "Consumer exception")))
+        (if-not (= port kill-chan)
+          (recur)
+          (do
+            (cp/clear-subscriptions! consumer)
+            (.close consumer)))))))
 
 (defn start-listening!
   [handlers {:keys [command event]} consumer-out-ch]
