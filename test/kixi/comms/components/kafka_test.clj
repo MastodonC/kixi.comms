@@ -3,8 +3,8 @@
              [spec :as s]
              [test :refer :all]]
             [com.stuartsierra.component :as component]
-            [kixi.comms :as comms]
             [kixi.comms.schema]
+            [kixi.comms :as comms]
             [kixi.comms.components.kafka :refer :all]))
 
 (def zookeeper-ip "127.0.0.1")
@@ -29,7 +29,7 @@
   (component/stop-system @system)
   (reset! system nil))
 
-(use-fixtures :each cycle-system-fixture)
+(use-fixtures :once cycle-system-fixture)
 
 (defn wait-for-atom
   ([a]
@@ -179,3 +179,23 @@
     (is (= id (get-in @c-result [:kixi.comms.command/payload :id])))
     (is (= id (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/payload :id])))
     (is (= :test/test-a (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/key])))))
+
+(defn wait
+  [ms]
+  (Thread/sleep ms))
+
+(deftest processing-time-gt-session-timeout
+  (comment "If processing time is greater than the session time out, kafka will boot the consumer. Our consumer needs to pause the paritions and continue to call poll while a large job is processing.")
+  (let [result (atom nil)
+        id (str (java.util.UUID/randomUUID))
+        id2 (str (java.util.UUID/randomUUID))]
+    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 45000)
+                                                                                        (reset-as-event! result %)))
+    (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
+    (wait-for-atom result 60 1000)
+    (is @result)
+    (is (= id (get-in @result [:kixi.comms.event/payload :id])))
+    (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id2})
+    (wait-for-atom result 60 1000 #(= id2 (get-in % [:kixi.comms.event/payload :id])))
+    (is @result)
+    (is (= id2 (get-in @result [:kixi.comms.event/payload :id])))))

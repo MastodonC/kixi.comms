@@ -21,7 +21,8 @@
             [kixi.comms.schema :as ks]
             [taoensso.timbre :as timbre :refer [error info]]
             [zookeeper :as zk])
-  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
+           [franzy.clients.consumer.client FranzConsumer]))
 
 ;; https://github.com/pingles/clj-kafka/blob/321f2d6a90a2860f4440431aa835de86a72e126d/src/clj_kafka/zk.clj#L8
 (defn brokers
@@ -138,52 +139,86 @@
       (run! send-event-fn! result)
       (send-event-fn! result))))
 
-(defn create-consumer
-  [handle-result-fn process-msg?-fn kill-chan group-id topics broker-list handler]
-  (let [timeout 100
-        cc {:bootstrap.servers       broker-list
-            :group.id                group-id
-            :auto.offset.reset       :earliest
-            :enable.auto.commit      false
-            :auto.commit.interval.ms timeout}
+(defn msg-handler-fn
+  [component-handler result-handler]
+  (fn [raw-msg msg]
+    (async/thread
+      (try
+        (result-handler (component-handler msg))
+        (catch Exception e
+          (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg)))))))
+
+(defn consumer-config
+  [group-id topic broker-list]
+  (let [auto-commit-timeout 100
+        session-timeout 30000
+        kafka-expected-heartbeat (- session-timeout 5000)
+        comms-heartbeat-interval (- kafka-expected-heartbeat 5000)]
+    {:bootstrap.servers       broker-list
+     :group.id                group-id
+                                        ;  :client.id "host"
+     :auto.offset.reset       :earliest
+     :enable.auto.commit      true
+     :auto.commit.interval.ms auto-commit-timeout
+     :session.timeout.ms session-timeout
+     :max.poll.records 10
+     :heartbeat.interval.ms kafka-expected-heartbeat
+     :comms.heartbeat-interval.ms comms-heartbeat-interval
+     :consumer.topic topic}))
+
+(defn consumer-options
+  []
+  (let [poll-timeout 100  
         listener (callbacks/consumer-rebalance-listener
                   (fn [tps]
-                    (info "topic partitions assigned:" tps))
+                    ;Don't really know what to do here yet
+                    )
                   (fn [tps]
-                    (info "topic partitions revoked:" tps)))
-        co (cd/make-default-consumer-options
-            {:rebalance-listener-callback listener})
-        consumer (consumer/make-consumer
-                  cc
-                  (deserializers/string-deserializer)
-                  (deserializers/string-deserializer))
-        _ (cp/subscribe-to-partitions! consumer (vals topics))]
-    (async/go-loop []
-      (let [[val port] (async/alts! [(async/thread
-                                       (cp/poll! consumer {:poll-timeout-ms timeout}))
-                                     kill-chan])]
-        (when-not (= port kill-chan)
-          (doseq [raw-msg (into [] val)]
-            (when-let [msg (some-> raw-msg
-                                   :value
-                                   transit->clj)]
-              (when (process-msg?-fn msg)
-                (async/<! (async/thread
-                            (try
-                              (handle-result-fn (handler msg))
-                              (catch Exception e
-                                (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg))))))
-                (cp/commit-offsets-async! consumer {(select-keys raw-msg [:topic :partition])
-                                                    {:offset (inc (:offset raw-msg))
-                                                     :metadata (str "Consumer stopping - "(java.util.Date.))}})))))
-        (if-not (= port kill-chan)
-          (recur)
-          (do
-            (cp/clear-subscriptions! consumer)
-            (.close consumer)))))))
+                    ;Don't really know what to do here yet
+                    ))]
+    {:consumer-records-fn         seq
+     :poll-timeout-ms             poll-timeout
+     :offset-commit-callback      (callbacks/offset-commit-callback)
+     :rebalance-listener-callback listener}))
+
+(defn create-consumer
+  [msg-handler process-msg?-fn kill-chan config]
+  (async/thread
+   (try
+      (let [^FranzConsumer consumer (consumer/make-consumer
+                                     config
+                                     (deserializers/string-deserializer)
+                                     (deserializers/string-deserializer)
+                                     (consumer-options))
+            _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
+        (loop []
+          (let [pack (cp/poll! consumer)]         
+            (doseq [raw-msg (into [] pack)]
+              (when-let [msg (some-> raw-msg
+                                     :value
+                                     transit->clj)]
+                (when (process-msg?-fn msg)
+                  (cp/pause! consumer (cp/assigned-partitions consumer))
+                  (let [result-ch (msg-handler raw-msg msg)]
+                    (loop []
+                      (let [[val port] (async/alts!! [result-ch
+                                                      (async/timeout (:comms.heartbeat-interval.ms config))])]
+                        (when-not (= port
+                                     result-ch)
+                          (cp/poll! consumer)
+                          (recur)))))
+                  (cp/resume! consumer (cp/assigned-partitions consumer)))))
+            (if-not (async/poll! kill-chan)
+              (recur)
+              (do
+                (cp/clear-subscriptions! consumer)
+                (.close consumer)
+                :done)))))
+      (catch Exception e
+        (error e (str "Consumer for " (:group.id config) " has died. Full config: " config))))))
 
 (defrecord Kafka [host port topics origin
-                  consumer-kill-ch consumer-kill-mult broker-list]
+                  consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
     (when producer-in-ch
@@ -194,23 +229,27 @@
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer (partial handle-result this :event)
-                       (process-msg? :event event version)
-                       kill-chan
-                       group-id
-                       topics
-                       broker-list
-                       handler)))
+      (->> (create-consumer (msg-handler-fn handler
+                                            (partial handle-result this :event))
+                            (process-msg? :event event version)
+                            kill-chan
+                            (consumer-config
+                             group-id
+                             (:event topics)
+                             broker-list))
+           (swap! consumer-loops conj))))
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (create-consumer (partial handle-result this :command)
-                       (process-msg? :command command version)
-                       kill-chan
-                       group-id
-                       topics
-                       broker-list
-                       handler)))
+      (->> (create-consumer (msg-handler-fn handler 
+                                            (partial handle-result this :command))
+                            (process-msg? :command command version)
+                            kill-chan
+                            (consumer-config
+                             group-id
+                             (:command topics)
+                             broker-list))
+           (swap! consumer-loops conj))))
   component/Lifecycle
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
@@ -228,6 +267,7 @@
              :topics topics
              :origin origin
              :broker-list broker-list
+             :consumer-loops (atom [])
              :producer-in-ch producer-chan
              :consumer-kill-ch consumer-kill-chan
              :consumer-kill-mult consumer-kill-mult)))
@@ -236,11 +276,14 @@
                   consumer-kill-ch]} component]
       (info "Stopping Kafka Producer/Consumer")
       (async/close! producer-in-ch)
-      (async/close! consumer-kill-ch)
+      (async/>!! consumer-kill-ch :done)
+      (doseq [c @consumer-loops]
+        (async/<!! c))
       (dissoc component
               :topics
               :origin
               :broker-list
               :producer-in-ch
+              :consumer-loops
               :consumer-kill-ch
               :consumer-kill-mult))))
