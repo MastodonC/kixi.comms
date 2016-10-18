@@ -171,9 +171,11 @@
   (let [poll-timeout 100  
         listener (callbacks/consumer-rebalance-listener
                   (fn [tps]
-                    (info "topic partitions assigned:" tps))
+                    ;Don't really know what to do here yet
+                    )
                   (fn [tps]
-                    (info "topic partitions revoked:" tps)))]
+                    ;Don't really know what to do here yet
+                    ))]
     {:consumer-records-fn         seq
      :poll-timeout-ms             poll-timeout
      :offset-commit-callback      (callbacks/offset-commit-callback)
