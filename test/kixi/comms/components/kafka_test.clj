@@ -88,40 +88,46 @@
 
 (deftest handle-result-tests
   (is (successful? (handle-result (:kafka @system)
-                                  :command {:kixi.comms.event/key :received-result
-                                            :kixi.comms.event/version "1.0.0"
-                                            :kixi.comms.event/payload {}})))
+                                  :command
+                                  {}
+                                  {:kixi.comms.event/key :received-result
+                                   :kixi.comms.event/version "1.0.0"
+                                   :kixi.comms.event/payload {}})))
   (is (successful? (handle-result (:kafka @system)
-                                  :event {:kixi.comms.event/key :received-result
-                                          :kixi.comms.event/version "1.0.0"
-                                          :kixi.comms.event/payload {}})))
+                                  :event
+                                  {}
+                                  {:kixi.comms.event/key :received-result
+                                   :kixi.comms.event/version "1.0.0"
+                                   :kixi.comms.event/payload {}})))
   (is (successful? (handle-result (:kafka @system)
-                                  :event [{:kixi.comms.event/key :received-result
-                                           :kixi.comms.event/version "1.0.0"
-                                           :kixi.comms.event/payload {}}
-                                          {:kixi.comms.event/key :received-result2
-                                           :kixi.comms.event/version "1.0.0"
-                                           :kixi.comms.event/payload {}}])))
+                                  :event
+                                  {}
+                                  [{:kixi.comms.event/key :received-result
+                                    :kixi.comms.event/version "1.0.0"
+                                    :kixi.comms.event/payload {}}
+                                   {:kixi.comms.event/key :received-result2
+                                    :kixi.comms.event/version "1.0.0"
+                                    :kixi.comms.event/payload {}}])))
   (is (successful? (handle-result (:kafka @system)
-                                  :event nil)))
+                                  :event {} nil)))
   (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
                         (handle-result (:kafka @system)
-                                       :command nil)))
+                                       :command {} nil)))
   (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
                         (handle-result (:kafka @system)
-                                       :command 123)))
+                                       :command {} 123)))
   (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
                         (handle-result (:kafka @system)
-                                       :command {:foo 123})))
+                                       :command {} {:foo 123})))
   (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
                         (handle-result (:kafka @system)
-                                       :event {:foo 123})))
+                                       :event {} {:foo 123})))
   (is (thrown-with-msg? Exception #"^Handler must return a valid event result"
                         (handle-result (:kafka @system)
-                                       :event [{:foo 123}
-                                               {:kixi.comms.event/key :received-result
-                                                :kixi.comms.event/version "1.0.0"
-                                                :kixi.comms.event/payload {}}]))))
+                                       :event {} [{:foo 123}
+                                                  {:kixi.comms.event/key :received-result
+                                                   :kixi.comms.event/version "1.0.0"
+                                                   :kixi.comms.event/payload {}}]))))
 
 (deftest command-roundtrip-test
   (let [result (atom nil)
@@ -178,7 +184,8 @@
     (is @e-result)
     (is (= id (get-in @c-result [:kixi.comms.command/payload :id])))
     (is (= id (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/payload :id])))
-    (is (= :test/test-a (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/key])))))
+    (is (= :test/test-a (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/key])))
+    (is (= (:kixi.comms.command/id @c-result) (:kixi.comms.command/id @e-result)))))
 
 (defn wait
   [ms]
