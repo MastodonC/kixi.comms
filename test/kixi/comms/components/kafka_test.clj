@@ -29,7 +29,7 @@
   (component/stop-system @system)
   (reset! system nil))
 
-(use-fixtures :each cycle-system-fixture)
+(use-fixtures :once cycle-system-fixture)
 
 (defn wait-for-atom
   ([a]
