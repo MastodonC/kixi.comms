@@ -74,14 +74,17 @@
 
 (defmethod format-message
   :event
-  [_ event-key event-version payload {:keys [origin]}]
-  {:kixi.comms.message/type     :event
-   :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
-   :kixi.comms.event/key        event-key
-   :kixi.comms.event/version    event-version
-   :kixi.comms.event/created-at (t/timestamp)
-   :kixi.comms.event/payload    payload
-   :kixi.comms.event/origin     origin})
+  [_ event-key event-version payload {:keys [origin command-id]}]
+  (let [r {:kixi.comms.message/type     :event
+           :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
+           :kixi.comms.event/key        event-key
+           :kixi.comms.event/version    event-version
+           :kixi.comms.event/created-at (t/timestamp)
+           :kixi.comms.event/payload    payload
+           :kixi.comms.event/origin     origin}]
+    (if command-id
+      (assoc r :kixi.comms.command/id command-id)
+      r)))
 
 (defn create-producer
   [in-chan topics origin broker-list]
@@ -99,9 +102,9 @@
         (loop []
           (let [msg (async/<! in-chan)]
             (if msg
-              (let [[topic-key message-type message-version payload] msg
+              (let [[topic-key _ _ _ opts] msg
                     topic     (get topics topic-key)
-                    formatted (apply format-message (conj msg {:origin origin}))
+                    formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
                     rm        (pp/send-sync! producer topic nil
                                              (or (:kixi.comms.command/id formatted)
                                                  (:kixi.comms.event/id formatted))
@@ -125,26 +128,25 @@
             (:kixi.comms.event/version msg))))))
 
 (defn handle-result
-  [kafka msg-type result]
-  (when (or (= msg-type :command)
-            result)
-    (when-not (s/valid? ::ks/event-result result)
+  [kafka msg-type original result]
+  (when (or (= msg-type :command) result)
+    (if-not (s/valid? ::ks/event-result result)
       (throw (Exception. (str "Handler must return a valid event result: "
-                              (s/explain-data ::ks/event-result result))))))
-  (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
-                                   kixi.comms.event/version
-                                   kixi.comms.event/payload] :as f}]
-            (comms/send-event! kafka key version payload))]
-    (if (sequential? result)
-      (run! send-event-fn! result)
-      (send-event-fn! result))))
+                              (s/explain-data ::ks/event-result result))))
+      (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
+                                       kixi.comms.event/version
+                                       kixi.comms.event/payload] :as f}]
+                (comms/send-event! kafka key version payload (:kixi.comms.command/id original)))]
+        (if (sequential? result)
+          (run! send-event-fn! result)
+          (send-event-fn! result))))))
 
 (defn msg-handler-fn
   [component-handler result-handler]
   (fn [raw-msg msg]
     (async/thread
       (try
-        (result-handler (component-handler msg))
+        (result-handler msg (component-handler msg))
         (catch Exception e
           (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg)))))))
 
@@ -168,13 +170,13 @@
 
 (defn consumer-options
   []
-  (let [poll-timeout 100  
+  (let [poll-timeout 100
         listener (callbacks/consumer-rebalance-listener
                   (fn [tps]
-                    ;Don't really know what to do here yet
+                                        ;Don't really know what to do here yet
                     )
                   (fn [tps]
-                    ;Don't really know what to do here yet
+                                        ;Don't really know what to do here yet
                     ))]
     {:consumer-records-fn         seq
      :poll-timeout-ms             poll-timeout
@@ -184,7 +186,7 @@
 (defn create-consumer
   [msg-handler process-msg?-fn kill-chan config]
   (async/thread
-   (try
+    (try
       (let [^FranzConsumer consumer (consumer/make-consumer
                                      config
                                      (deserializers/string-deserializer)
@@ -192,7 +194,7 @@
                                      (consumer-options))
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
-          (let [pack (cp/poll! consumer)]         
+          (let [pack (cp/poll! consumer)]
             (doseq [raw-msg (into [] pack)]
               (when-let [msg (some-> raw-msg
                                      :value
@@ -222,10 +224,13 @@
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
     (when producer-in-ch
-      (async/put! producer-in-ch [:event event version payload])))
+      (async/put! producer-in-ch [:event event version payload nil])))
+  (send-event! [{:keys [producer-in-ch]} event version payload command-id]
+    (when producer-in-ch
+      (async/put! producer-in-ch [:event event version payload {:command-id command-id}])))
   (send-command! [{:keys [producer-in-ch]} command version payload]
     (when producer-in-ch
-      (async/put! producer-in-ch [:command command version payload])))
+      (async/put! producer-in-ch [:command command version payload nil])))
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
@@ -241,7 +246,7 @@
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
-      (->> (create-consumer (msg-handler-fn handler 
+      (->> (create-consumer (msg-handler-fn handler
                                             (partial handle-result this :command))
                             (process-msg? :command command version)
                             kill-chan
