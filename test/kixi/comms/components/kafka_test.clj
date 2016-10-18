@@ -187,10 +187,15 @@
 (deftest processing-time-gt-session-timeout
   (comment "If processing time is greater than the session time out, kafka will boot the consumer. Our consumer needs to pause the paritions and continue to call poll while a large job is processing.")
   (let [result (atom nil)
-        id (str (java.util.UUID/randomUUID))]
+        id (str (java.util.UUID/randomUUID))
+        id2 (str (java.util.UUID/randomUUID))]
     (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 45000)
                                                                                         (reset-as-event! result %)))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 2 30000)
+    (wait-for-atom result 60 1000)
     (is @result)
-    (is (= id (get-in @result [:kixi.comms.event/payload :id])))))
+    (is (= id (get-in @result [:kixi.comms.event/payload :id])))
+    (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id2})
+    (wait-for-atom result 60 1000 #(= id2 (get-in % [:kixi.comms.event/payload :id])))
+    (is @result)
+    (is (= id2 (get-in @result [:kixi.comms.event/payload :id])))))

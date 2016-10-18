@@ -183,15 +183,14 @@
 
 (defn create-consumer
   [msg-handler process-msg?-fn kill-chan config]
-  (async/thread-call
-   #(try
+  (async/thread
+   (try
       (let [^FranzConsumer consumer (consumer/make-consumer
                                      config
                                      (deserializers/string-deserializer)
                                      (deserializers/string-deserializer)
                                      (consumer-options))
-            _ (cp/subscribe-to-partitions! consumer (:consumer.topic config)) 
-            topic-partitions (cp/assigned-partitions consumer)] ;this returns nothing... how do we get our partition assignment?
+            _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
           (let [pack (cp/poll! consumer)]         
             (doseq [raw-msg (into [] pack)]
@@ -199,7 +198,7 @@
                                      :value
                                      transit->clj)]
                 (when (process-msg?-fn msg)
-                  (cp/pause! consumer topic-partitions)
+                  (cp/pause! consumer (cp/assigned-partitions consumer))
                   (let [result-ch (msg-handler raw-msg msg)]
                     (loop []
                       (let [[val port] (async/alts!! [result-ch
@@ -208,7 +207,7 @@
                                      result-ch)
                           (cp/poll! consumer)
                           (recur)))))
-                  (cp/resume! consumer topic-partitions))))
+                  (cp/resume! consumer (cp/assigned-partitions consumer)))))
             (if-not (async/poll! kill-chan)
               (recur)
               (do
