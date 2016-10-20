@@ -198,13 +198,13 @@
                                      (consumer-options))
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
-          (let [pack (cp/poll! consumer)]
+          (let [pack (cp/poll! consumer)]      
+            (cp/pause! consumer (cp/assigned-partitions consumer))
             (doseq [raw-msg (into [] pack)]
               (when-let [msg (some-> raw-msg
                                      :value
                                      transit->clj)]
-                (when (process-msg?-fn msg)
-                  (cp/pause! consumer (cp/assigned-partitions consumer))
+                (when (process-msg?-fn msg)            
                   (let [result-ch (msg-handler raw-msg msg)]
                     (loop []
                       (let [[val port] (async/alts!! [result-ch
@@ -212,8 +212,8 @@
                         (when-not (= port
                                      result-ch)
                           (cp/poll! consumer)
-                          (recur)))))
-                  (cp/resume! consumer (cp/assigned-partitions consumer)))))
+                          (recur))))))))
+            (cp/resume! consumer (cp/assigned-partitions consumer))
             (if-not (async/poll! kill-chan)
               (recur)
               (do
