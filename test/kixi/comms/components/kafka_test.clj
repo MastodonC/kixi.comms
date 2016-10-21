@@ -19,9 +19,13 @@
     (reset! system
             (component/start-system
              (component/system-map
-              :kafka (map->Kafka {:host zookeeper-ip
-                                  :port zookeeper-port
-                                  :group-id group-id}))))))
+              :kafka
+              (map->Kafka {:host zookeeper-ip
+                           :port zookeeper-port
+                           :group-id group-id
+                           :consumer-config {;to set this lower, need to configure the brokers group.min.session.timeout.ms
+                                             :session.timeout.ms 6000
+                                             :auto.commit.interval.ms 1500}}))))))
 (defn cycle-system-fixture
   [all-tests]
   (start-kafka-system)
