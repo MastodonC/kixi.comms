@@ -150,6 +150,17 @@
         (catch Exception e
           (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg)))))))
 
+(def custom-config-elements
+  "These are some additional pieces of config that Kafka doesn't like"
+  #{:heartbeat.interval.multiplier
+    :heartbeat.interval.send.multiplier
+    :heartbeat.interval.send.ms
+    :consumer.topic})
+
+(defn dissoc-custom
+  [config]
+  (apply dissoc config custom-config-elements))
+
 (def default-consumer-config
   {:session.timeout.ms 30000
    :auto.commit.interval.ms 5000
@@ -174,7 +185,7 @@
 
 (defn consumer-options
   []
-  (let [poll-timeout 100
+  (let [poll-timeout 1000
         listener (callbacks/consumer-rebalance-listener
                   (fn [tps]
                                         ;Don't really know what to do here yet
@@ -192,28 +203,29 @@
   (async/thread
     (try
       (let [^FranzConsumer consumer (consumer/make-consumer
-                                     config
+                                     (dissoc-custom config)
                                      (deserializers/string-deserializer)
                                      (deserializers/string-deserializer)
                                      (consumer-options))
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
-          (let [pack (cp/poll! consumer)]      
-            (cp/pause! consumer (cp/assigned-partitions consumer))
-            (doseq [raw-msg (into [] pack)]
-              (when-let [msg (some-> raw-msg
-                                     :value
-                                     transit->clj)]
-                (when (process-msg?-fn msg)            
-                  (let [result-ch (msg-handler raw-msg msg)]
-                    (loop []
-                      (let [[val port] (async/alts!! [result-ch
-                                                      (async/timeout (:heartbeat.interval.send.ms config))])]
-                        (when-not (= port
-                                     result-ch)
-                          (cp/poll! consumer)
-                          (recur))))))))
-            (cp/resume! consumer (cp/assigned-partitions consumer))
+          (let [pack (cp/poll! consumer)]
+            (when-let [raw-msgs (seq (into [] pack))]
+              (cp/pause! consumer (cp/assigned-partitions consumer))
+              (doseq [raw-msg raw-msgs]
+                (when-let [msg (some-> raw-msg
+                                       :value
+                                       transit->clj)]
+                  (when (process-msg?-fn msg)            
+                    (let [result-ch (msg-handler raw-msg msg)]
+                      (loop []
+                        (let [[val port] (async/alts!! [result-ch
+                                                        (async/timeout (:heartbeat.interval.send.ms config))])]
+                          (when-not (= port
+                                       result-ch)
+                            (cp/poll! consumer)
+                            (recur))))))))
+              (cp/resume! consumer (cp/assigned-partitions consumer)))
             (if-not (async/poll! kill-chan)
               (recur)
               (do
