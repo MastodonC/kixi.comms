@@ -88,17 +88,17 @@
 
 (defn create-producer
   [in-chan topics origin broker-list]
-  (async/go
-    (try
-      (let [key-serializer     (serializers/string-serializer)
-            value-serializer   (serializers/string-serializer)
-            pc                 {:bootstrap.servers broker-list}
-            po                 (pd/make-default-producer-options)
-            producer           (producer/make-producer
-                                pc
-                                key-serializer
-                                value-serializer
-                                po)]
+  (try
+    (let [key-serializer     (serializers/string-serializer)
+          value-serializer   (serializers/string-serializer)
+          pc                 {:bootstrap.servers broker-list}
+          po                 (pd/make-default-producer-options)
+          producer           (producer/make-producer
+                              pc
+                              key-serializer
+                              value-serializer
+                              po)]
+      (async/go
         (loop []
           (let [msg (async/<! in-chan)]
             (if msg
@@ -110,9 +110,9 @@
                                                  (:kixi.comms.event/id formatted))
                                              (clj->transit formatted) po)]
                 (recur))
-              (.close producer)))))
-      (catch Exception e
-        (error e "Producer Exception")))))
+              (.close producer))))))
+    (catch Exception e
+      (error e "Producer Exception"))))
 
 (defn process-msg?
   [msg-type event version]
