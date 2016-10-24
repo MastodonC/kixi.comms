@@ -11,6 +11,9 @@
 (def zookeeper-port 2181)
 (def group-id "test-group")
 
+(def wait-tries 30)
+(def wait-per-try 100)
+
 (def system (atom nil))
 
 (defn start-kafka-system
@@ -36,9 +39,9 @@
 
 (defn wait-for-atom
   ([a]
-   (wait-for-atom a 65))
+   (wait-for-atom a wait-tries))
   ([a tries]
-   (wait-for-atom a tries 500))
+   (wait-for-atom a tries wait-per-try))
   ([a tries ms]
    (wait-for-atom a tries ms identity))
   ([a tries ms predicate]
@@ -169,7 +172,7 @@
     (comms/attach-event-handler! (:kafka @system) :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/attach-event-handler! (:kafka @system) :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/send-event! (:kafka @system) :test/foo-e "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 65 500 #(<= 2 (count %)))
+    (wait-for-atom result wait-tries wait-per-try #(<= 2 (count %)))
     (is @result)
     (is (= 2 (count @result)))
     (is (= (first @result) (second @result)))))
@@ -194,18 +197,20 @@
   [ms]
   (Thread/sleep ms))
 
+(def longer-than-kafka-session-timeout 7000)
+
 (deftest processing-time-gt-session-timeout
   (comment "If processing time is greater than the session time out, kafka will boot the consumer. Our consumer needs to pause the paritions and continue to call poll while a large job is processing.")
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))
         id2 (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 7000)
+    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait longer-than-kafka-session-timeout)
                                                                                         (reset-as-event! result %)))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
-    (wait-for-atom result 60 1000)
+    (wait-for-atom result)
     (is @result)
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id2})
-    (wait-for-atom result 60 1000 #(= id2 (get-in % [:kixi.comms.event/payload :id])))
+    (wait-for-atom result wait-tries wait-per-try #(= id2 (get-in % [:kixi.comms.event/payload :id])))
     (is @result)
     (is (= id2 (get-in @result [:kixi.comms.event/payload :id])))))
