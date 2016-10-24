@@ -117,15 +117,16 @@
 (defn process-msg?
   [msg-type event version]
   (fn [msg]
-    (and
-     (= msg-type
-        (:kixi.comms.message/type msg))
-     (= event
-        (or (:kixi.comms.command/key msg)
-            (:kixi.comms.event/key msg)))
-     (= version
-        (or (:kixi.comms.command/version msg)
-            (:kixi.comms.event/version msg))))))
+    (when (and
+           (= msg-type
+              (:kixi.comms.message/type msg))
+           (= event
+              (or (:kixi.comms.command/key msg)
+                  (:kixi.comms.event/key msg)))
+           (= version
+              (or (:kixi.comms.command/version msg)
+                  (:kixi.comms.event/version msg))))
+      msg)))
 
 (defn handle-result
   [kafka msg-type original result]
@@ -143,12 +144,12 @@
 
 (defn msg-handler-fn
   [component-handler result-handler]
-  (fn [raw-msg msg]
+  (fn [msg]
     (async/thread
       (try
         (result-handler msg (component-handler msg))
         (catch Exception e
-          (error e (str "Consumer exception processing msg. Raw: " (:value raw-msg) ". Demarshalled: " msg)))))))
+          (error e (str "Consumer exception processing msg. Msg: " msg)))))))
 
 (def custom-config-elements
   "These are some additional pieces of config that Kafka doesn't like"
@@ -210,21 +211,21 @@
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
           (let [pack (cp/poll! consumer)]
-            (when-let [raw-msgs (seq (into [] pack))]
+            (when-let [msgs (seq (keep (comp process-msg?-fn 
+                                             transit->clj 
+                                             :value) 
+                                       (keep identity
+                                             (into [] pack))))]
               (cp/pause! consumer (cp/assigned-partitions consumer))
-              (doseq [raw-msg raw-msgs]
-                (when-let [msg (some-> raw-msg
-                                       :value
-                                       transit->clj)]
-                  (when (process-msg?-fn msg)            
-                    (let [result-ch (msg-handler raw-msg msg)]
-                      (loop []
-                        (let [[val port] (async/alts!! [result-ch
-                                                        (async/timeout (:heartbeat.interval.send.ms config))])]
-                          (when-not (= port
-                                       result-ch)
-                            (cp/poll! consumer)
-                            (recur))))))))
+              (doseq [msg msgs]
+                (let [result-ch (msg-handler msg)]
+                  (loop []
+                    (let [[val port] (async/alts!! [result-ch
+                                                    (async/timeout (:heartbeat.interval.send.ms config))])]
+                      (when-not (= port
+                                   result-ch)
+                        (cp/poll! consumer)
+                        (recur))))))
               (cp/resume! consumer (cp/assigned-partitions consumer)))
             (if-not (async/poll! kill-chan)
               (recur)
