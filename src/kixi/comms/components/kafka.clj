@@ -229,6 +229,7 @@
             (if-not (async/poll! kill-chan)
               (recur)
               (do
+                (cp/commit-offsets-sync! consumer)
                 (cp/clear-subscriptions! consumer)
                 (.close consumer)
                 :done)))))
