@@ -197,12 +197,14 @@
   [ms]
   (Thread/sleep ms))
 
+(def longer-than-kafka-session-timeout 7000)
+
 (deftest processing-time-gt-session-timeout
   (comment "If processing time is greater than the session time out, kafka will boot the consumer. Our consumer needs to pause the paritions and continue to call poll while a large job is processing.")
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))
         id2 (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 7000)
+    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait longer-than-kafka-session-timeout)
                                                                                         (reset-as-event! result %)))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
     (wait-for-atom result)
