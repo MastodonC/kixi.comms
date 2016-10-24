@@ -1,3 +1,4 @@
+(def slf4j-version "1.7.21")
 (defproject kixi/kixi.comms "0.1.6-SNAPSHOT"
   :description "FIXME: write description"
   :url "https://github.com/MastodonC/kixi.comms"
@@ -8,10 +9,14 @@
                  [ymilky/franzy "0.0.1"]
                  [com.cognitect/transit-clj "0.8.290"]
                  [com.stuartsierra/component "0.3.1"]
+                 [com.fzakaria/slf4j-timbre "0.3.2"]
                  [com.taoensso/timbre "4.7.0"]
                  [zookeeper-clj "0.9.4"]
                  [cheshire "5.6.3"]
-                 [clj-time "0.12.0"]]
+                 [clj-time "0.12.0"]
+                 [org.slf4j/log4j-over-slf4j ~slf4j-version]
+                 [org.slf4j/jul-to-slf4j ~slf4j-version]
+                 [org.slf4j/jcl-over-slf4j ~slf4j-version]]
   :main ^:skip-aot kixi.comms
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}

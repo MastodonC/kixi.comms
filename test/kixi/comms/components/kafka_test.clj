@@ -22,7 +22,6 @@
               :kafka
               (map->Kafka {:host zookeeper-ip
                            :port zookeeper-port
-                           :group-id group-id
                            :consumer-config {;to set this lower, need to configure the brokers group.min.session.timeout.ms
                                              :session.timeout.ms 6000
                                              :auto.commit.interval.ms 1500}}))))))
@@ -200,7 +199,7 @@
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))
         id2 (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 45000)
+    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait 7000)
                                                                                         (reset-as-event! result %)))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
     (wait-for-atom result 60 1000)
