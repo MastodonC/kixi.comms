@@ -11,7 +11,7 @@
                  [com.stuartsierra/component "0.3.1"]
                  [com.fzakaria/slf4j-timbre "0.3.2"]
                  [com.taoensso/timbre "4.7.0"]
-                 [zookeeper-clj "0.9.4"]
+                 [zookeeper-clj "0.9.4" :exclusions [org.slf4j/slf4j-log4j12]]
                  [cheshire "5.6.3"]
                  [clj-time "0.12.0"]
                  [org.slf4j/log4j-over-slf4j ~slf4j-version]
