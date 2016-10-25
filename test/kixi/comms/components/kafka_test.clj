@@ -11,7 +11,7 @@
 (def zookeeper-port 2181)
 (def group-id "test-group")
 
-(def wait-tries 30)
+(def wait-tries 90)
 (def wait-per-try 100)
 
 (def system (atom nil))
