@@ -15,12 +15,8 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(deftest message-type-test
-  (is (s/valid? :kixi.comms.message/type :command))
-  (is (not (s/valid? :kixi.comms.message/type :foobar)))
-
 (deftest message-conform-test
-  (let [msg {:kixi.comms.message/type :command
+  (let [msg {:kixi.comms.message/type "command"
              :kixi.comms.command/key  "gateway/ping"
              :kixi.comms.command/version "1.0.0"
              :kixi.comms.command/id   (uuid)
@@ -30,7 +26,7 @@
         (pr-str (s/explain-data :kixi.comms.message/message msg)))))
 
 (deftest message-fail-test
-  (let [msg {:kixi.comms.message/type :foobar
+  (let [msg {:kixi.comms.message/type "foobar"
              :kixi.comms.command/key  "gateway/ping"
              :kixi.comms.command/version "1.0.0"
              :kixi.comms.command/id   (uuid)
