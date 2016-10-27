@@ -10,20 +10,30 @@
   [s]
   (re-find #"^\d+\.\d+\.\d+$" s))
 
+(defn -keyword?
+  [x]
+  (cond
+    (clojure.core/keyword? x) x
+    (clojure.core/string? x) (clojure.core/keyword x)
+    :else :clojure.spec/invalid))
+
+(def kixi-keyword?
+  (s/conformer -keyword?))
+
 (s/def :kixi.comms.message/type #{:query
                                   :query-response
                                   :command
                                   :event})
 
 (s/def :kixi.comms.command/id uuid?)
-(s/def :kixi.comms.command/key keyword?)
+(s/def :kixi.comms.command/key kixi-keyword?)
 (s/def :kixi.comms.command/version semver?)
 (s/def :kixi.comms.command/receipt uuid?)
 (s/def :kixi.comms.command/created-at t/timestamp?)
 (s/def :kixi.comms.command/payload (constantly true))
 
 (s/def :kixi.comms.event/id uuid?)
-(s/def :kixi.comms.event/key keyword?)
+(s/def :kixi.comms.event/key kixi-keyword?)
 (s/def :kixi.comms.event/version semver?)
 (s/def :kixi.comms.event/created-at t/timestamp?)
 (s/def :kixi.comms.event/payload (constantly true))
