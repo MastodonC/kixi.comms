@@ -20,11 +20,6 @@
 (def kixi-keyword?
   (s/conformer -keyword?))
 
-(s/def :kixi.comms.message/type #{:query
-                                  :query-response
-                                  :command
-                                  :event})
-
 (s/def :kixi.comms.command/id uuid?)
 (s/def :kixi.comms.command/key kixi-keyword?)
 (s/def :kixi.comms.command/version semver?)
@@ -41,7 +36,7 @@
 
 (defmulti message-type :kixi.comms.message/type)
 
-(defmethod message-type :command [_]
+(defmethod message-type "command" [_]
   (s/keys :req [:kixi.comms.message/type
                 :kixi.comms.command/id
                 :kixi.comms.command/key
@@ -49,7 +44,7 @@
                 :kixi.comms.command/created-at
                 :kixi.comms.command/payload]))
 
-(defmethod message-type :event [_]
+(defmethod message-type "event" [_]
   (s/keys :req [:kixi.comms.message/type
                 :kixi.comms.event/id
                 :kixi.comms.event/key
@@ -63,11 +58,11 @@
   (s/multi-spec message-type :kixi.comms.message/type))
 
 (s/def :kixi.comms.message/command
-  (s/and #(= (:kixi.comms.message/type %) :command)
+  (s/and #(= (:kixi.comms.message/type %) "command")
          :kixi.comms.message/message))
 
 (s/def :kixi.comms.message/event
-  (s/and #(= (:kixi.comms.message/type %) :event)
+  (s/and #(= (:kixi.comms.message/type %) "event")
          :kixi.comms.message/message))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
