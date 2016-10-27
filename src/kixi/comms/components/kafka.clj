@@ -65,7 +65,7 @@
 (defmethod format-message
   :command
   [_ command-key command-version payload _]
-  {:kixi.comms.message/type       :command
+  {:kixi.comms.message/type       "command"
    :kixi.comms.command/id         (str (java.util.UUID/randomUUID))
    :kixi.comms.command/key        command-key
    :kixi.comms.command/version    command-version
@@ -75,7 +75,7 @@
 (defmethod format-message
   :event
   [_ event-key event-version payload {:keys [origin command-id]}]
-  (let [r {:kixi.comms.message/type     :event
+  (let [r {:kixi.comms.message/type     "event"
            :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
            :kixi.comms.event/key        event-key
            :kixi.comms.event/version    event-version
@@ -118,7 +118,7 @@
   [msg-type event version]
   (fn [msg]
     (when (and
-           (= msg-type
+           (= (name msg-type)
               (:kixi.comms.message/type msg))
            (= event
               (or (:kixi.comms.command/key msg)
@@ -177,9 +177,9 @@
          {:bootstrap.servers broker-list
           :group.id group-id
           :consumer.topic topic
-          :heartbeat.interval.ms (int (* (:session.timeout.ms base-config) 
+          :heartbeat.interval.ms (int (* (:session.timeout.ms base-config)
                                          (:heartbeat.interval.multiplier base-config)))
-          :heartbeat.interval.send.ms (int (* (:session.timeout.ms base-config) 
+          :heartbeat.interval.send.ms (int (* (:session.timeout.ms base-config)
                                               (:heartbeat.interval.send.multiplier base-config)))
                                         ;  :client.id "host"
           }))
@@ -211,9 +211,9 @@
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
           (let [pack (cp/poll! consumer)]
-            (when-let [msgs (seq (keep (comp process-msg?-fn 
-                                             transit->clj 
-                                             :value) 
+            (when-let [msgs (seq (keep (comp process-msg?-fn
+                                             transit->clj
+                                             :value)
                                        (keep identity
                                              (into [] pack))))]
               (cp/pause! consumer (cp/assigned-partitions consumer))
