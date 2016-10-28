@@ -64,12 +64,12 @@
 
 (defmethod format-message
   :command
-  [_ command-key command-version payload _]
+  [_ command-key command-version payload {:keys [id created-at]}]
   {:kixi.comms.message/type       "command"
-   :kixi.comms.command/id         (str (java.util.UUID/randomUUID))
+   :kixi.comms.command/id         (or id (str (java.util.UUID/randomUUID)))
    :kixi.comms.command/key        command-key
    :kixi.comms.command/version    command-version
-   :kixi.comms.command/created-at (t/timestamp)
+   :kixi.comms.command/created-at (or created-at (t/timestamp))
    :kixi.comms.command/payload    payload})
 
 (defmethod format-message
@@ -249,6 +249,9 @@
   (send-command! [{:keys [producer-in-ch]} command version payload]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload nil])))
+  (send-command! [{:keys [producer-in-ch]} command version payload opts]
+    (when producer-in-ch
+      (async/put! producer-in-ch [:command command version payload opts])))
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
