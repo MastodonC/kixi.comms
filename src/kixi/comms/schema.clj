@@ -34,6 +34,9 @@
 (s/def :kixi.comms.event/payload (constantly true))
 (s/def :kixi.comms.event/origin string?)
 
+(s/def :kixi.comms.query/id uuid?)
+(s/def :kixi.comms.query/body (constantly true))
+
 (defmulti message-type :kixi.comms.message/type)
 
 (defmethod message-type "command" [_]
@@ -53,6 +56,11 @@
                 :kixi.comms.event/payload
                 :kixi.comms.event/origin]
           :opt [:kixi.comms.command/id]))
+
+(defmethod message-type "query" [_]
+  (s/keys :req [:kixi.comms.message/type
+                :kixi.comms.query/id
+                :kixi.comms.query/body]))
 
 (s/def :kixi.comms.message/message
   (s/multi-spec message-type :kixi.comms.message/type))
