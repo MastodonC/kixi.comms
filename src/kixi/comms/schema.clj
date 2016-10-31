@@ -4,11 +4,13 @@
 
 (defn uuid?
   [s]
-  (re-find #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" s))
+  (and (string? s)
+       (re-find #"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$" s)))
 
 (defn semver?
   [s]
-  (re-find #"^\d+\.\d+\.\d+$" s))
+  (and (string? s)
+       (re-find #"^\d+\.\d+\.\d+$" s)))
 
 (defn -keyword?
   [x]
