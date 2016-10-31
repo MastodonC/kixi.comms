@@ -2,6 +2,10 @@
   (:require [clojure.spec    :as s]
             [kixi.comms.time :as t]))
 
+(defn xor
+  [& args]
+  (= 1 (get (frequencies args) true)))
+
 (defn uuid?
   [s]
   (and (string? s)
@@ -38,6 +42,8 @@
 
 (s/def :kixi.comms.query/id uuid?)
 (s/def :kixi.comms.query/body (constantly true))
+(s/def :kixi.comms.query/error string?)
+(s/def :kixi.comms.query/results vector?)
 
 (defmulti message-type :kixi.comms.message/type)
 
@@ -64,6 +70,12 @@
                 :kixi.comms.query/id
                 :kixi.comms.query/body]))
 
+(defmethod message-type "query-response" [_]
+  (s/keys :req [:kixi.comms.message/type
+                :kixi.comms.query/id
+                (xor :kixi.comms.query/error
+                     :kixi.comms.query/results)]))
+
 (s/def :kixi.comms.message/message
   (s/multi-spec message-type :kixi.comms.message/type))
 
@@ -73,6 +85,14 @@
 
 (s/def :kixi.comms.message/event
   (s/and #(= (:kixi.comms.message/type %) "event")
+         :kixi.comms.message/message))
+
+(s/def :kixi.comms.message/query
+  (s/and #(= (:kixi.comms.message/type %) "query")
+         :kixi.comms.message/message))
+
+(s/def :kixi.comms.message/query-response
+  (s/and #(= (:kixi.comms.message/type %) "query-response")
          :kixi.comms.message/message))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
