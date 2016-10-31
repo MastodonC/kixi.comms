@@ -25,7 +25,8 @@
   (is (not (s/valid? semver? "1.2")))
   (is (not (s/valid? semver? "1.2.")))
   (is (not (s/valid? semver? "1.2.3a")))
-  (is (not (s/valid? semver? "x.y.z"))))
+  (is (not (s/valid? semver? "x.y.z")))
+  (is (not (s/valid? semver? 1.2))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
