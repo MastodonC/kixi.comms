@@ -30,6 +30,20 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
+(deftest query-response-results-or-error
+  (is (s/valid? :kixi.comms.message/query-response {:kixi.comms.message/type "query-response"
+                                                    :kixi.comms.query/id (uuid)
+                                                    :kixi.comms.query/results [1 2 3]}))
+  (is (s/valid? :kixi.comms.message/query-response {:kixi.comms.message/type "query-response"
+                                                    :kixi.comms.query/id (uuid)
+                                                    :kixi.comms.query/error "Foobar"}))
+  (is (not (s/valid? :kixi.comms.message/query-response {:kixi.comms.message/type "query-response"
+                                                         :kixi.comms.query/id (uuid)
+                                                         :kixi.comms.query/error "Foobar"
+                                                         :kixi.comms.query/results [1 2 3]})))
+  (is (not (s/valid? :kixi.comms.message/query-response {:kixi.comms.message/type "query-response"
+                                                         :kixi.comms.query/id (uuid)}))))
+
 (deftest message-conform-test
   (let [msg {:kixi.comms.message/type "command"
              :kixi.comms.command/key  "gateway/ping"
