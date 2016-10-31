@@ -13,6 +13,21 @@
   (is (s/valid? kixi-keyword? "foo"))
   (is (not (s/valid? kixi-keyword? 123))))
 
+(deftest uuid-test
+  (is (s/valid? uuid? (uuid)))
+  (is (not (s/valid? uuid? 123))))
+
+(deftest semver-test
+  (is (s/valid? semver? "1.2.3"))
+  (is (s/valid? semver? "1111111.2222222222.333333333"))
+  (is (not (s/valid? semver? "1")))
+  (is (not (s/valid? semver? "1.")))
+  (is (not (s/valid? semver? "1.2")))
+  (is (not (s/valid? semver? "1.2.")))
+  (is (not (s/valid? semver? "1.2.3a")))
+  (is (not (s/valid? semver? "x.y.z")))
+  (is (not (s/valid? semver? 1.2))))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (deftest message-conform-test
