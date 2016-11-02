@@ -115,18 +115,24 @@
       (error e "Producer Exception"))))
 
 (defn process-msg?
-  [msg-type event version]
-  (fn [msg]
-    (when (and
-           (= (name msg-type)
-              (:kixi.comms.message/type msg))
-           (= event
-              (or (:kixi.comms.command/key msg)
-                  (:kixi.comms.event/key msg)))
-           (= version
-              (or (:kixi.comms.command/version msg)
-                  (:kixi.comms.event/version msg))))
-      msg)))
+  ([msg-type pred]
+   (fn [msg]
+     (when (and (= (name msg-type)
+                   (:kixi.comms.message/type msg))
+                (pred msg))
+       msg)))
+  ([msg-type event version]
+   (fn [msg]
+     (when (and
+            (= (name msg-type)
+               (:kixi.comms.message/type msg))
+            (= event
+               (or (:kixi.comms.command/key msg)
+                   (:kixi.comms.event/key msg)))
+            (= version
+               (or (:kixi.comms.command/version msg)
+                   (:kixi.comms.event/version msg))))
+       msg))))
 
 (defn handle-result
   [kafka msg-type original result]
@@ -252,6 +258,20 @@
   (send-command! [{:keys [producer-in-ch]} command version payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload opts])))
+  (attach-event-with-key-handler!
+      [this group-id map-key handler]
+    (let [kill-chan (async/chan)
+          _ (async/tap consumer-kill-mult kill-chan)]
+      (->> (create-consumer (msg-handler-fn handler
+                                            (partial handle-result this :event))
+                            (process-msg? :event #(contains? % map-key))
+                            kill-chan
+                            (build-consumer-config
+                             group-id
+                             (:event topics)
+                             broker-list
+                             (:consumer-config this)))
+           (swap! consumer-loops conj))))
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
