@@ -193,12 +193,15 @@
     (is (= :test/test-a (get-in @e-result [:kixi.comms.event/payload :kixi.comms.command/key])))
     (is (= (:kixi.comms.command/id @c-result) (:kixi.comms.command/id @e-result)))))
 
-(deftest roundtrip-command->event-open
+(deftest roundtrip-command->event-with-key
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
     (comms/attach-command-handler! (:kafka @system) :component-j :test/test-xyz "1.0.0" (partial reset-as-event! c-result))
-    (comms/attach-event-handler! (:kafka @system) :component-k (fn [x] (reset! e-result x) nil))
+    (comms/attach-event-with-key-handler! (:kafka @system)
+                                         :component-k
+                                         :kixi.comms.command/id
+                                         (fn [x] (reset! e-result x) nil))
     (comms/send-command! (:kafka @system) :test/test-xyz "1.0.0" {:foo "123" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)

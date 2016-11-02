@@ -115,10 +115,11 @@
       (error e "Producer Exception"))))
 
 (defn process-msg?
-  ([msg-type]
+  ([msg-type pred]
    (fn [msg]
-     (when (= (name msg-type)
-              (:kixi.comms.message/type msg))
+     (when (and (= (name msg-type)
+                   (:kixi.comms.message/type msg))
+                (pred msg))
        msg)))
   ([msg-type event version]
    (fn [msg]
@@ -257,12 +258,13 @@
   (send-command! [{:keys [producer-in-ch]} command version payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload opts])))
-  (attach-event-handler! [this group-id handler]
+  (attach-event-with-key-handler!
+      [this group-id map-key handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
       (->> (create-consumer (msg-handler-fn handler
                                             (partial handle-result this :event))
-                            (process-msg? :event)
+                            (process-msg? :event #(contains? % map-key))
                             kill-chan
                             (build-consumer-config
                              group-id
