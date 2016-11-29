@@ -27,18 +27,23 @@
 ;; https://github.com/pingles/clj-kafka/blob/321f2d6a90a2860f4440431aa835de86a72e126d/src/clj_kafka/zk.clj#L8
 (defn brokers
   "Get brokers from zookeeper"
-  [host port]
+  [path host port]
   (let [z (atom nil)]
     (try
+      (info ">>> Connecting to SK...")
       (reset! z (zk/connect (str host ":" port)))
-      (if-let [broker-ids (zk/children @z "/brokers/ids")]
-        (let [brokers (doall (map (comp #(parse-string % true)
-                                        #(String. ^bytes %)
-                                        :data
-                                        #(zk/data @z (str "/brokers/ids/" %)))
-                                  broker-ids))]
-          (when (seq brokers)
-            (mapv (fn [{:keys [host port]}] (str host ":" port)) brokers))))
+      (info ">>> Got connection")
+      (if-let [broker-ids (zk/children @z (str path "brokers/ids"))]
+        (do
+          (info ">>> Broker IDS:" broker-ids)
+          (let [brokers (doall (map (comp #(parse-string % true)
+                                          #(String. ^bytes %)
+                                          :data
+                                          #(zk/data @z (str path "brokers/ids/" %)))
+                                    broker-ids))]
+            (info ">>> Brokers:" brokers)
+            (when (seq brokers)
+              (mapv (fn [{:keys [host port]}] (str host ":" port)) brokers)))))
       (finally
         (when @z
           (zk/close @z))))))
@@ -88,31 +93,31 @@
 
 (defn create-producer
   [in-chan topics origin broker-list]
-  (try
-    (let [key-serializer     (serializers/string-serializer)
-          value-serializer   (serializers/string-serializer)
-          pc                 {:bootstrap.servers broker-list}
-          po                 (pd/make-default-producer-options)
-          producer           (producer/make-producer
-                              pc
-                              key-serializer
-                              value-serializer
-                              po)]
-      (async/go
-        (loop []
-          (let [msg (async/<! in-chan)]
-            (if msg
-              (let [[topic-key _ _ _ opts] msg
-                    topic     (get topics topic-key)
-                    formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
-                    rm        (pp/send-sync! producer topic nil
-                                             (or (:kixi.comms.command/id formatted)
-                                                 (:kixi.comms.event/id formatted))
-                                             (clj->transit formatted) po)]
-                (recur))
-              (.close producer))))))
-    (catch Exception e
-      (error e "Producer Exception"))))
+  (let [key-serializer     (serializers/string-serializer)
+        value-serializer   (serializers/string-serializer)
+        pc                 {:bootstrap.servers broker-list}
+        po                 (pd/make-default-producer-options)]
+    (try
+      (let [producer           (producer/make-producer
+                                pc
+                                key-serializer
+                                value-serializer
+                                po)]
+        (async/go
+          (loop []
+            (let [msg (async/<! in-chan)]
+              (if msg
+                (let [[topic-key _ _ _ opts] msg
+                      topic     (get topics topic-key)
+                      formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                      rm        (pp/send-sync! producer topic nil
+                                               (or (:kixi.comms.command/id formatted)
+                                                   (:kixi.comms.event/id formatted))
+                                               (clj->transit formatted) po)]
+                  (recur))
+                (.close producer))))))
+      (catch Exception e
+        (error e (str "Producer Exception1, pc=" pc ", po=" po))))))
 
 (defn process-msg?
   ([msg-type pred]
@@ -243,7 +248,7 @@
       (catch Exception e
         (error e (str "Consumer for " (:group.id config) " has died. Full config: " config))))))
 
-(defrecord Kafka [host port topics origin consumer-config
+(defrecord Kafka [host port zk-path topics origin consumer-config
                   consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
@@ -259,7 +264,7 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload opts])))
   (attach-event-with-key-handler!
-      [this group-id map-key handler]
+    [this group-id map-key handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
       (->> (create-consumer (msg-handler-fn handler
@@ -302,7 +307,7 @@
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
           origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
-          broker-list        (brokers host port)
+          broker-list        (brokers (or zk-path "/") host port)
           producer-chan      (async/chan)
           consumer-kill-chan (async/chan)
           consumer-kill-mult (async/mult consumer-kill-chan)]

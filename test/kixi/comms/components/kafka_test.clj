@@ -89,7 +89,7 @@
                        (format-message :event :test/foo "1.0.0" {:foo :bar} {:origin "local"})))))
 
 (deftest brokers-list-test
-  (let [bl (first (brokers zookeeper-ip zookeeper-port))]
+  (let [bl (first (brokers "/" zookeeper-ip zookeeper-port))]
     (is (re-find #"\d{1,3}.\d{1,3}.\d{1,3}.\d{1,3}:\d{4,5}" bl))))
 
 (deftest handle-result-tests
