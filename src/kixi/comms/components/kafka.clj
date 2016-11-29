@@ -30,15 +30,20 @@
   [host port]
   (let [z (atom nil)]
     (try
+      (info ">>> Connecting to SK...")
       (reset! z (zk/connect (str host ":" port)))
+      (info ">>> Got connection")
       (if-let [broker-ids (zk/children @z "/brokers/ids")]
-        (let [brokers (doall (map (comp #(parse-string % true)
-                                        #(String. ^bytes %)
-                                        :data
-                                        #(zk/data @z (str "/brokers/ids/" %)))
-                                  broker-ids))]
-          (when (seq brokers)
-            (mapv (fn [{:keys [host port]}] (str host ":" port)) brokers))))
+        (do
+          (info ">>> Broker IDS:" broker-ids)
+          (let [brokers (doall (map (comp #(parse-string % true)
+                                          #(String. ^bytes %)
+                                          :data
+                                          #(zk/data @z (str "/brokers/ids/" %)))
+                                    broker-ids))]
+            (info ">>> Brokers:" brokers)
+            (when (seq brokers)
+              (mapv (fn [{:keys [host port]}] (str host ":" port)) brokers)))))
       (finally
         (when @z
           (zk/close @z))))))
@@ -88,31 +93,31 @@
 
 (defn create-producer
   [in-chan topics origin broker-list]
-  (try
-    (let [key-serializer     (serializers/string-serializer)
-          value-serializer   (serializers/string-serializer)
-          pc                 {:bootstrap.servers broker-list}
-          po                 (pd/make-default-producer-options)
-          producer           (producer/make-producer
-                              pc
-                              key-serializer
-                              value-serializer
-                              po)]
-      (async/go
-        (loop []
-          (let [msg (async/<! in-chan)]
-            (if msg
-              (let [[topic-key _ _ _ opts] msg
-                    topic     (get topics topic-key)
-                    formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
-                    rm        (pp/send-sync! producer topic nil
-                                             (or (:kixi.comms.command/id formatted)
-                                                 (:kixi.comms.event/id formatted))
-                                             (clj->transit formatted) po)]
-                (recur))
-              (.close producer))))))
-    (catch Exception e
-      (error e "Producer Exception"))))
+  (let [key-serializer     (serializers/string-serializer)
+        value-serializer   (serializers/string-serializer)
+        pc                 {:bootstrap.servers broker-list}
+        po                 (pd/make-default-producer-options)]
+    (try
+      (let [producer           (producer/make-producer
+                                pc
+                                key-serializer
+                                value-serializer
+                                po)]
+        (async/go
+          (loop []
+            (let [msg (async/<! in-chan)]
+              (if msg
+                (let [[topic-key _ _ _ opts] msg
+                      topic     (get topics topic-key)
+                      formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                      rm        (pp/send-sync! producer topic nil
+                                               (or (:kixi.comms.command/id formatted)
+                                                   (:kixi.comms.event/id formatted))
+                                               (clj->transit formatted) po)]
+                  (recur))
+                (.close producer))))))
+      (catch Exception e
+        (error e (str "Producer Exception1, pc=" pc ", po=" po))))))
 
 (defn process-msg?
   ([msg-type pred]
