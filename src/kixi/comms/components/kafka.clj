@@ -39,7 +39,7 @@
           (let [brokers (doall (map (comp #(parse-string % true)
                                           #(String. ^bytes %)
                                           :data
-                                          #(zk/data @z (str "/brokers/ids/" %)))
+                                          #(zk/data @z (str path "brokers/ids/" %)))
                                     broker-ids))]
             (info ">>> Brokers:" brokers)
             (when (seq brokers)
