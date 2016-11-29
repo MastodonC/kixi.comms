@@ -27,13 +27,13 @@
 ;; https://github.com/pingles/clj-kafka/blob/321f2d6a90a2860f4440431aa835de86a72e126d/src/clj_kafka/zk.clj#L8
 (defn brokers
   "Get brokers from zookeeper"
-  [host port]
+  [path host port]
   (let [z (atom nil)]
     (try
       (info ">>> Connecting to SK...")
       (reset! z (zk/connect (str host ":" port)))
       (info ">>> Got connection")
-      (if-let [broker-ids (zk/children @z "/brokers/ids")]
+      (if-let [broker-ids (zk/children @z (str path "brokers/ids"))]
         (do
           (info ">>> Broker IDS:" broker-ids)
           (let [brokers (doall (map (comp #(parse-string % true)
@@ -248,7 +248,7 @@
       (catch Exception e
         (error e (str "Consumer for " (:group.id config) " has died. Full config: " config))))))
 
-(defrecord Kafka [host port topics origin consumer-config
+(defrecord Kafka [host port zk-path topics origin consumer-config
                   consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
   (send-event! [{:keys [producer-in-ch]} event version payload]
@@ -264,7 +264,7 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version payload opts])))
   (attach-event-with-key-handler!
-      [this group-id map-key handler]
+    [this group-id map-key handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
       (->> (create-consumer (msg-handler-fn handler
@@ -307,7 +307,7 @@
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
           origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
-          broker-list        (brokers host port)
+          broker-list        (brokers (or zk-path "/dcos-service-kafka/") host port)
           producer-chan      (async/chan)
           consumer-kill-chan (async/chan)
           consumer-kill-mult (async/mult consumer-kill-chan)]
