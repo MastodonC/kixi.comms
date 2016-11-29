@@ -307,7 +307,7 @@
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
           origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
-          broker-list        (brokers (or zk-path "/dcos-service-kafka/") host port)
+          broker-list        (brokers (or zk-path "/") host port)
           producer-chan      (async/chan)
           consumer-kill-chan (async/chan)
           consumer-kill-mult (async/mult consumer-kill-chan)]
