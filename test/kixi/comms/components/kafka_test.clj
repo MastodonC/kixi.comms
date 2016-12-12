@@ -138,7 +138,7 @@
 (deftest command-roundtrip-test
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! (:kafka @system) :component-a :test/foo "1.0.0" (partial reset-as-event! result))
+    (comms/attach-command-handler! (:kafka @system) :test/foo "1.0.0" (partial reset-as-event! result))
     (comms/send-command! (:kafka @system) :test/foo "1.0.0" {:foo "123" :id id})
     (wait-for-atom result)
     (is @result)
@@ -147,7 +147,7 @@
 (deftest event-roundtrip-test
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-b :test/foo-b "1.0.0" (partial reset-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-b "1.0.0" (partial reset-as-event! result))
     (comms/send-event! (:kafka @system) :test/foo-b "1.0.0" {:foo "123" :id id})
     (wait-for-atom result)
     (is @result)
@@ -157,8 +157,8 @@
   (let [result (atom nil)
         fail (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-c :test/foo-c "1.0.0" (partial reset-as-event! result))
-    (comms/attach-event-handler! (:kafka @system) :component-d :test/foo-c "1.0.1" (partial reset-as-event! fail))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-c "1.0.0" (partial reset-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-c "1.0.1" (partial reset-as-event! fail))
     (comms/send-event! (:kafka @system) :test/foo-c "1.0.0" {:foo "123" :id id})
     (wait-for-atom result)
     (is (not @fail))
@@ -169,8 +169,8 @@
 (deftest multiple-handlers-get-same-message
   (let [result (atom [])
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
-    (comms/attach-event-handler! (:kafka @system) :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/send-event! (:kafka @system) :test/foo-e "1.0.0" {:foo "123" :id id})
     (wait-for-atom result wait-tries wait-per-try #(<= 2 (count %)))
     (is @result)
@@ -181,8 +181,8 @@
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! (:kafka @system) :component-g :test/test-a "1.0.0" (partial reset-as-event! c-result))
-    (comms/attach-event-handler! (:kafka @system) :component-h :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil))
+    (comms/attach-command-handler! (:kafka @system) :test/test-a "1.0.0" (partial reset-as-event! c-result))
+    (comms/attach-event-handler! (:kafka @system) :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil))
     (comms/send-command! (:kafka @system) :test/test-a "1.0.0" {:foo "123" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
@@ -197,11 +197,11 @@
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! (:kafka @system) :component-j :test/test-xyz "1.0.0" (partial reset-as-event! c-result))
+    (comms/attach-command-handler! (:kafka @system) :test/test-xyz "1.0.0" (partial reset-as-event! c-result))
     (comms/attach-event-with-key-handler! (:kafka @system)
-                                         :component-k
-                                         :kixi.comms.command/id
-                                         (fn [x] (reset! e-result x) nil))
+                                          :component-k
+                                          :kixi.comms.command/id
+                                          (fn [x] (reset! e-result x) nil))
     (comms/send-command! (:kafka @system) :test/test-xyz "1.0.0" {:foo "123" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
@@ -223,8 +223,8 @@
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))
         id2 (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! (:kafka @system) :component-i :test/foo-f "1.0.0" #(do (wait longer-than-kafka-session-timeout)
-                                                                                        (reset-as-event! result %)))
+    (comms/attach-event-handler! (:kafka @system) :test/foo-f "1.0.0" #(do (wait longer-than-kafka-session-timeout)
+                                                                           (reset-as-event! result %)))
     (comms/send-event! (:kafka @system) :test/foo-f "1.0.0" {:foo "123" :id id})
     (wait-for-atom result)
     (is @result)
