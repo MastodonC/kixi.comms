@@ -277,7 +277,7 @@
                              broker-list
                              (:consumer-config this)))
            (swap! consumer-loops conj))))
-  (attach-event-handler! [this group-id event version handler]
+  (attach-event-handler! [this event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
       (->> (create-consumer (msg-handler-fn handler
@@ -285,12 +285,12 @@
                             (process-msg? :event event version)
                             kill-chan
                             (build-consumer-config
-                             group-id
+                             event
                              (:event topics)
                              broker-list
                              (:consumer-config this)))
            (swap! consumer-loops conj))))
-  (attach-command-handler! [this group-id command version handler]
+  (attach-command-handler! [this command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)]
       (->> (create-consumer (msg-handler-fn handler
@@ -298,7 +298,7 @@
                             (process-msg? :command command version)
                             kill-chan
                             (build-consumer-config
-                             group-id
+                             command
                              (:command topics)
                              broker-list
                              (:consumer-config this)))
@@ -330,10 +330,13 @@
     (let [{:keys [producer-in-ch
                   consumer-kill-ch]} component]
       (info "Stopping Kafka Producer/Consumer")
-      (async/close! producer-in-ch)
-      (async/>!! consumer-kill-ch :done)
+      (when producer-in-ch
+        (async/close! producer-in-ch))
+      (when consumer-kill-ch
+        (async/>!! consumer-kill-ch :done))
       (doseq [c @consumer-loops]
-        (async/<!! c))
+        (when c
+          (async/<!! c)))
       (dissoc component
               :topics
               :origin
