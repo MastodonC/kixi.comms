@@ -60,7 +60,7 @@
 (defn transit->clj
   ([s]
    (transit->clj s :json))
-  ([s t]
+  ([^String s t]
    (let [in (ByteArrayInputStream. (.getBytes s))
          reader (transit/reader in t)]
      (transit/read reader))))
@@ -266,43 +266,53 @@
   (attach-event-with-key-handler!
     [this group-id map-key handler]
     (let [kill-chan (async/chan)
-          _ (async/tap consumer-kill-mult kill-chan)]
-      (->> (create-consumer (msg-handler-fn handler
-                                            (partial handle-result this :event))
-                            (process-msg? :event #(contains? % map-key))
-                            kill-chan
-                            (build-consumer-config
-                             group-id
-                             (:event topics)
-                             broker-list
-                             (:consumer-config this)))
-           (swap! consumer-loops conj))))
+          _ (async/tap consumer-kill-mult kill-chan)
+          handler (create-consumer (msg-handler-fn handler
+                                                   (partial handle-result this :event))
+                                   (process-msg? :event #(contains? % map-key))
+                                   kill-chan
+                                   (build-consumer-config
+                                    group-id
+                                    (:event topics)
+                                    broker-list
+                                    (:consumer-config this)))]
+      (swap! consumer-loops assoc handler kill-chan)
+      handler))
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
-          _ (async/tap consumer-kill-mult kill-chan)]
-      (->> (create-consumer (msg-handler-fn handler
-                                            (partial handle-result this :event))
-                            (process-msg? :event event version)
-                            kill-chan
-                            (build-consumer-config
-                             group-id
-                             (:event topics)
-                             broker-list
-                             (:consumer-config this)))
-           (swap! consumer-loops conj))))
+          _ (async/tap consumer-kill-mult kill-chan)
+          handler (create-consumer (msg-handler-fn handler
+                                                   (partial handle-result this :event))
+                                   (process-msg? :event event version)
+                                   kill-chan
+                                   (build-consumer-config
+                                    group-id
+                                    (:event topics)
+                                    broker-list
+                                    (:consumer-config this)))]
+      (swap! consumer-loops assoc handler kill-chan)
+      handler))
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
-          _ (async/tap consumer-kill-mult kill-chan)]
-      (->> (create-consumer (msg-handler-fn handler
-                                            (partial handle-result this :command))
-                            (process-msg? :command command version)
-                            kill-chan
-                            (build-consumer-config
-                             group-id
-                             (:command topics)
-                             broker-list
-                             (:consumer-config this)))
-           (swap! consumer-loops conj))))
+          _ (async/tap consumer-kill-mult kill-chan)
+          handler (create-consumer (msg-handler-fn handler
+                                                   (partial handle-result this :command))
+                                   (process-msg? :command command version)
+                                   kill-chan
+                                   (build-consumer-config
+                                    group-id
+                                    (:command topics)
+                                    broker-list
+                                    (:consumer-config this)))]
+      (swap! consumer-loops assoc handler kill-chan)
+      handler))
+  (detach-handler! [this handler]
+    (when-let [kill-chan (get @consumer-loops handler)]
+      (swap! consumer-loops dissoc handler)
+      (async/untap consumer-kill-mult kill-chan)
+      (async/>!! kill-chan :done)
+      (async/close! kill-chan)
+      (async/<!! handler)))
   component/Lifecycle
   (start [component]
     (let [topics (or topics {:command "command" :event "event"})
@@ -320,7 +330,7 @@
              :topics topics
              :origin origin
              :broker-list broker-list
-             :consumer-loops (atom [])
+             :consumer-loops (atom {})
              :producer-in-ch producer-chan
              :consumer-kill-ch consumer-kill-chan
              :consumer-kill-mult consumer-kill-mult
@@ -332,8 +342,9 @@
       (info "Stopping Kafka Producer/Consumer")
       (async/close! producer-in-ch)
       (async/>!! consumer-kill-ch :done)
-      (doseq [c @consumer-loops]
+      (doseq [c (keys @consumer-loops)]
         (async/<!! c))
+      (async/close! consumer-kill-ch)
       (dissoc component
               :topics
               :origin
