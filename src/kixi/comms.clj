@@ -12,4 +12,6 @@
   (attach-event-with-key-handler!
     [this group-id map-key handler])
   (attach-command-handler!
-    [this group-id event version handler]))
+    [this group-id event version handler])
+  (detach-handler!
+    [this handler]))
