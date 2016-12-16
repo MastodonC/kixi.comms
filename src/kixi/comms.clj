@@ -1,12 +1,14 @@
 (ns kixi.comms)
 
 (defprotocol Communications
+  "send-event opts: command-id
+   send-command opts: origin, id"
   (send-event!
     [this event version payload]
-    [this event version payload command-id])
+    [this event version payload opts])
   (send-command!
-    [this command version payload]
-    [this command version payload opts])
+    [this command version user payload]
+    [this command version user payload opts])
   (attach-event-handler!
     [this group-id event version handler])
   (attach-event-with-key-handler!

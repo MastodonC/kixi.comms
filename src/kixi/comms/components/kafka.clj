@@ -65,21 +65,22 @@
          reader (transit/reader in t)]
      (transit/read reader))))
 
-(defmulti format-message (fn [t _ _ _ _] t))
+(defmulti format-message (fn [t _ _ _ _ _] t))
 
 (defmethod format-message
   :command
-  [_ command-key command-version payload {:keys [id created-at]}]
+  [_ command-key command-version user payload {:keys [id created-at]}]
   {:kixi.comms.message/type       "command"
    :kixi.comms.command/id         (or id (str (java.util.UUID/randomUUID)))
    :kixi.comms.command/key        command-key
    :kixi.comms.command/version    command-version
    :kixi.comms.command/created-at (or created-at (t/timestamp))
-   :kixi.comms.command/payload    payload})
+   :kixi.comms.command/payload    payload
+   :kixi.comms.command/user       user})
 
 (defmethod format-message
   :event
-  [_ event-key event-version payload {:keys [origin command-id]}]
+  [_ event-key event-version _ payload {:keys [origin command-id]}]
   (let [r {:kixi.comms.message/type     "event"
            :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
            :kixi.comms.event/key        event-key
@@ -107,7 +108,7 @@
           (loop []
             (let [msg (async/<! in-chan)]
               (if msg
-                (let [[topic-key _ _ _ opts] msg
+                (let [[topic-key _ _ _ _ opts] msg
                       topic     (get topics topic-key)
                       formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
                       rm        (pp/send-sync! producer topic nil
@@ -148,7 +149,8 @@
       (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
                                        kixi.comms.event/version
                                        kixi.comms.event/payload] :as f}]
-                (comms/send-event! kafka key version payload (:kixi.comms.command/id original)))]
+                (comms/send-event! kafka key version payload
+                                   {:command-id (:kixi.comms.command/id original)}))]
         (if (sequential? result)
           (run! send-event-fn! result)
           (send-event-fn! result))))))
@@ -251,18 +253,20 @@
 (defrecord Kafka [host port zk-path topics origin consumer-config
                   consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
-  (send-event! [{:keys [producer-in-ch]} event version payload]
+  (send-event! [comms event version payload]
+    (comms/send-event! comms event version payload {}))
+
+  (send-event! [{:keys [producer-in-ch]} event version payload opts]
     (when producer-in-ch
-      (async/put! producer-in-ch [:event event version payload nil])))
-  (send-event! [{:keys [producer-in-ch]} event version payload command-id]
+      (async/put! producer-in-ch [:event event version nil payload opts])))
+
+  (send-command! [comms command version user payload]
+    (comms/send-command! comms command version user payload {}))
+
+  (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
-      (async/put! producer-in-ch [:event event version payload {:command-id command-id}])))
-  (send-command! [{:keys [producer-in-ch]} command version payload]
-    (when producer-in-ch
-      (async/put! producer-in-ch [:command command version payload nil])))
-  (send-command! [{:keys [producer-in-ch]} command version payload opts]
-    (when producer-in-ch
-      (async/put! producer-in-ch [:command command version payload opts])))
+      (async/put! producer-in-ch [:command command version user payload opts])))
+
   (attach-event-with-key-handler!
     [this group-id map-key handler]
     (let [kill-chan (async/chan)

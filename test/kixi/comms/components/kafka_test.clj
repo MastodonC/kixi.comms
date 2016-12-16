@@ -16,6 +16,12 @@
 
 (def system (atom nil))
 
+(defn uuid []
+  (str (java.util.UUID/randomUUID)))
+
+(def user {:kixi.user/id (uuid)
+           :kixi.user/groups [(uuid)]})
+
 (defn start-kafka-system
   []
   (when-not @system
@@ -83,10 +89,10 @@
 (deftest formatting-tests
   (is (not
        (s/explain-data :kixi.comms.message/command
-                       (format-message :command :test/foo "1.0.0" {:foo :bar} nil))))
+                       (format-message :command :test/foo "1.0.0" user {:foo :bar} nil))))
   (is (not
        (s/explain-data :kixi.comms.message/event
-                       (format-message :event :test/foo "1.0.0" {:foo :bar} {:origin "local"})))))
+                       (format-message :event :test/foo "1.0.0" user {:foo :bar} {:origin "local"})))))
 
 (deftest brokers-list-test
   (let [bl (first (brokers "/" zookeeper-ip zookeeper-port))]
@@ -139,7 +145,7 @@
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
     (comms/attach-command-handler! (:kafka @system) :component-a :test/foo "1.0.0" (partial reset-as-event! result))
-    (comms/send-command! (:kafka @system) :test/foo "1.0.0" {:test "command-roundtrip-test" :id id})
+    (comms/send-command! (:kafka @system) :test/foo "1.0.0" user {:test "command-roundtrip-test" :id id})
     (wait-for-atom result)
     (is @result)
     (is (= id (get-in @result [:kixi.comms.command/payload :id])))))
@@ -183,7 +189,7 @@
         id (str (java.util.UUID/randomUUID))]
     (comms/attach-command-handler! (:kafka @system) :component-g :test/test-a "1.0.0" (partial reset-as-event! c-result))
     (comms/attach-event-handler! (:kafka @system) :component-h :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil))
-    (comms/send-command! (:kafka @system) :test/test-a "1.0.0" {:test "roundtrip-command->event" :id id})
+    (comms/send-command! (:kafka @system) :test/test-a "1.0.0" user {:test "roundtrip-command->event" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
     (is @c-result)
@@ -199,10 +205,10 @@
         id (str (java.util.UUID/randomUUID))]
     (comms/attach-command-handler! (:kafka @system) :component-j :test/test-xyz "1.0.0" (partial reset-as-event! c-result))
     (comms/attach-event-with-key-handler! (:kafka @system)
-                                         :component-k
-                                         :kixi.comms.command/id
-                                         (fn [x] (reset! e-result x) nil))
-    (comms/send-command! (:kafka @system) :test/test-xyz "1.0.0" {:test "roundtrip-command->event-with-key" :id id})
+                                          :component-k
+                                          :kixi.comms.command/id
+                                          (fn [x] (reset! e-result x) nil))
+    (comms/send-command! (:kafka @system) :test/test-xyz "1.0.0" user {:test "roundtrip-command->event-with-key" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
     (is @c-result)
@@ -240,7 +246,7 @@
 
 (defn attach-command-handler!
   [event handler]
-  (comms/attach-command-handler! (:kafka @system) 
+  (comms/attach-command-handler! (:kafka @system)
                                  (component-name)
                                  event
                                  "1.0.0"
@@ -251,7 +257,7 @@
   (comms/attach-event-handler! (:kafka @system)
                                (component-name)
                                event
-                               "1.0.0" 
+                               "1.0.0"
                                handler))
 
 (deftest detaching-a-handler
@@ -260,9 +266,9 @@
         id (str (java.util.UUID/randomUUID))]
     (attach-command-handler! :test/test-a
                              (partial reset-as-event! c-result))
-    (let [eh (attach-event-handler! :test/test-a-event 
+    (let [eh (attach-event-handler! :test/test-a-event
                                     (fn [x] (reset! e-result x) nil))]
-      (comms/send-command! (:kafka @system) :test/test-a "1.0.0" {:test "detaching-a-handler" :id id})
+      (comms/send-command! (:kafka @system) :test/test-a "1.0.0" user {:test "detaching-a-handler" :id id})
       (wait-for-atom c-result)
       (wait-for-atom e-result)
       (if-not (and @c-result @e-result)
@@ -271,6 +277,6 @@
         (do
           (reset! e-result nil)
           (comms/detach-handler! (:kafka @system) eh)
-          (comms/send-command! (:kafka @system) :test/test-a "1.0.0" {:test "detaching-a-handler-2" :id id})
+          (comms/send-command! (:kafka @system) :test/test-a "1.0.0" user {:test "detaching-a-handler-2" :id id})
           (wait-for-atom e-result)
           (is (nil? @e-result)))))))
