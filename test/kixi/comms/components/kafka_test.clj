@@ -89,10 +89,10 @@
 (deftest formatting-tests
   (is (not
        (s/explain-data :kixi.comms.message/command
-                       (format-message :command :test/foo "1.0.0" {:foo :bar} nil))))
+                       (format-message :command :test/foo "1.0.0" user {:foo :bar} nil))))
   (is (not
        (s/explain-data :kixi.comms.message/event
-                       (format-message :event :test/foo "1.0.0" {:foo :bar} {:origin "local"})))))
+                       (format-message :event :test/foo "1.0.0" user {:foo :bar} {:origin "local"})))))
 
 (deftest brokers-list-test
   (let [bl (first (brokers "/" zookeeper-ip zookeeper-port))]
