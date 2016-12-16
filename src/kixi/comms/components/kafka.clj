@@ -108,7 +108,7 @@
           (loop []
             (let [msg (async/<! in-chan)]
               (if msg
-                (let [[topic-key _ _ _ opts] msg
+                (let [[topic-key _ _ _ _ opts] msg
                       topic     (get topics topic-key)
                       formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
                       rm        (pp/send-sync! producer topic nil
