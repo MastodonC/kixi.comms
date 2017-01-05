@@ -169,7 +169,8 @@
   #{:heartbeat.interval.multiplier
     :heartbeat.interval.send.multiplier
     :heartbeat.interval.send.ms
-    :consumer.topic})
+    :consumer.topic
+    :poll-timeout})
 
 (defn dissoc-custom
   [config]
@@ -198,8 +199,8 @@
           }))
 
 (defn consumer-options
-  []
-  (let [poll-timeout 1000
+  [config]
+  (let [poll-timeout (:poll-timeout config 1000)
         listener (callbacks/consumer-rebalance-listener
                   (fn [tps]
                                         ;Don't really know what to do here yet
@@ -220,7 +221,7 @@
                                      (dissoc-custom config)
                                      (deserializers/string-deserializer)
                                      (deserializers/string-deserializer)
-                                     (consumer-options))
+                                     (consumer-options config))
             _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
         (loop []
           (let [pack (cp/poll! consumer)]
