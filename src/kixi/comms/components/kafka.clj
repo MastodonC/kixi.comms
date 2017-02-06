@@ -320,41 +320,46 @@
       (async/<!! handler)))
   component/Lifecycle
   (start [component]
-    (let [topics (or topics {:command "command" :event "event"})
-          origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
-          broker-list        (brokers (or zk-path "/") host port)
-          producer-chan      (async/chan)
-          consumer-kill-chan (async/chan)
-          consumer-kill-mult (async/mult consumer-kill-chan)]
-      (info "Starting Kafka Producer/Consumer")
-      (create-producer producer-chan
-                       topics
-                       origin
-                       broker-list)
-      (assoc component
-             :topics topics
-             :origin origin
-             :broker-list broker-list
-             :consumer-loops (atom {})
-             :producer-in-ch producer-chan
-             :consumer-kill-ch consumer-kill-chan
-             :consumer-kill-mult consumer-kill-mult
-             :consumer-config (merge default-consumer-config
-                                     consumer-config))))
+    (if-not (:producer-in-ch component)
+      (let [topics (or topics {:command "command" :event "event"})
+            origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
+            broker-list        (brokers (or zk-path "/") host port)
+            producer-chan      (async/chan)
+            consumer-kill-chan (async/chan)
+            consumer-kill-mult (async/mult consumer-kill-chan)]
+        (info "Starting Kafka Producer/Consumer")
+        (create-producer producer-chan
+                         topics
+                         origin
+                         broker-list)
+        (assoc component
+               :topics topics
+               :origin origin
+               :broker-list broker-list
+               :consumer-loops (atom {})
+               :producer-in-ch producer-chan
+               :consumer-kill-ch consumer-kill-chan
+               :consumer-kill-mult consumer-kill-mult
+               :consumer-config (merge default-consumer-config
+                                       consumer-config)))
+      component))
   (stop [component]
     (let [{:keys [producer-in-ch
                   consumer-kill-ch]} component]
-      (info "Stopping Kafka Producer/Consumer")
-      (async/close! producer-in-ch)
-      (async/>!! consumer-kill-ch :done)
-      (doseq [c (keys @consumer-loops)]
-        (async/<!! c))
-      (async/close! consumer-kill-ch)
-      (dissoc component
-              :topics
-              :origin
-              :broker-list
-              :producer-in-ch
-              :consumer-loops
-              :consumer-kill-ch
-              :consumer-kill-mult))))
+      (if (:producer-in-ch component)
+        (do
+          (info "Stopping Kafka Producer/Consumer")
+          (async/close! producer-in-ch)
+          (async/>!! consumer-kill-ch :done)
+          (doseq [c (keys @consumer-loops)]
+            (async/<!! c))
+          (async/close! consumer-kill-ch)
+          (dissoc component
+                  :topics
+                  :origin
+                  :broker-list
+                  :producer-in-ch
+                  :consumer-loops
+                  :consumer-kill-ch
+                  :consumer-kill-mult))
+        component))))
