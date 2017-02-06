@@ -6,7 +6,7 @@
             :url "http://www.eclipse.org/legal/epl-v10.html"}
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
                  [org.clojure/core.async "0.2.391"]
-                 [lbradstreet/franzy "0.0.2"]
+                 [mastondonc/franzy "0.0.3"]
                  [com.cognitect/transit-clj "0.8.290"]
                  [com.stuartsierra/component "0.3.1"]
                  [com.fzakaria/slf4j-timbre "0.3.2"]
