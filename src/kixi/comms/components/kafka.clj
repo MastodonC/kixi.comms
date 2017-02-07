@@ -322,7 +322,8 @@
   (start [component]
     (if-not (:producer-in-ch component)
       (let [topics (or topics {:command "command" :event "event"})
-            origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
+            origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
+                                   (catch Throwable _ nil)))
             broker-list        (brokers (or zk-path "/") host port)
             producer-chan      (async/chan)
             consumer-kill-chan (async/chan)
