@@ -30,18 +30,17 @@
   [path host port]
   (let [z (atom nil)]
     (try
-      (info ">>> Connecting to SK...")
+      (info "Connecting to ZooKeeper...")
       (reset! z (zk/connect (str host ":" port)))
-      (info ">>> Got connection")
       (if-let [broker-ids (zk/children @z (str path "brokers/ids"))]
         (do
-          (info ">>> Broker IDS:" broker-ids)
+          (info "Broker IDS:" (vec broker-ids))
           (let [brokers (doall (map (comp #(parse-string % true)
                                           #(String. ^bytes %)
                                           :data
                                           #(zk/data @z (str path "brokers/ids/" %)))
                                     broker-ids))]
-            (info ">>> Brokers:" brokers)
+            (info "Brokers:" (vec brokers))
             (when (seq brokers)
               (mapv (fn [{:keys [host port]}] (str host ":" port)) brokers)))))
       (finally
@@ -322,7 +321,8 @@
   (start [component]
     (if-not (:producer-in-ch component)
       (let [topics (or topics {:command "command" :event "event"})
-            origin (or origin (.. java.net.InetAddress getLocalHost getHostName))
+            origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
+                                   (catch Throwable _ "<unknown>")))
             broker-list        (brokers (or zk-path "/") host port)
             producer-chan      (async/chan)
             consumer-kill-chan (async/chan)
