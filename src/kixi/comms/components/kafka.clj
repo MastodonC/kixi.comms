@@ -319,6 +319,8 @@
       (async/<!! handler)))
   component/Lifecycle
   (start [component]
+    (timbre/merge-config! {:ns-blacklist ["org.apache.kafka.*"
+                                          "org.apache.zookeeper.*"]})
     (if-not (:producer-in-ch component)
       (let [topics (or topics {:command "command" :event "event"})
             origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
