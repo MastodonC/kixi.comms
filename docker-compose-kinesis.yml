@@ -1,0 +1,8 @@
+version: '2'
+services:
+  kinesis:
+    build: .
+    image: vsouza/kinesis-local
+    ports:
+      - '4567:4567'
+    command: -p 4567

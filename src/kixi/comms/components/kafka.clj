@@ -2,7 +2,6 @@
   (:require [cheshire.core :refer [parse-string]]
             [clojure.spec :as s]
             [clojure.core.async :as async]
-            [cognitect.transit :as transit]
             [com.stuartsierra.component :as component]
             [franzy.clients.consumer
              [callbacks :as callbacks]
@@ -19,6 +18,7 @@
             [kixi.comms :as comms]
             [kixi.comms.time :as t]
             [kixi.comms.schema :as ks]
+            [kixi.comms.messages :as msg]
             [taoensso.timbre :as timbre :refer [error info]]
             [zookeeper :as zk])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
@@ -47,50 +47,6 @@
         (when @z
           (zk/close @z))))))
 
-(defn clj->transit
-  ([m]
-   (clj->transit m :json))
-  ([m t]
-   (let [out (ByteArrayOutputStream. 4096)
-         writer (transit/writer out t)]
-     (transit/write writer m)
-     (.toString out))))
-
-(defn transit->clj
-  ([s]
-   (transit->clj s :json))
-  ([^String s t]
-   (let [in (ByteArrayInputStream. (.getBytes s))
-         reader (transit/reader in t)]
-     (transit/read reader))))
-
-(defmulti format-message (fn [t _ _ _ _ _] t))
-
-(defmethod format-message
-  :command
-  [_ command-key command-version user payload {:keys [id created-at]}]
-  {:kixi.comms.message/type       "command"
-   :kixi.comms.command/id         (or id (str (java.util.UUID/randomUUID)))
-   :kixi.comms.command/key        command-key
-   :kixi.comms.command/version    command-version
-   :kixi.comms.command/created-at (or created-at (t/timestamp))
-   :kixi.comms.command/payload    payload
-   :kixi.comms.command/user       user})
-
-(defmethod format-message
-  :event
-  [_ event-key event-version _ payload {:keys [origin command-id]}]
-  (let [r {:kixi.comms.message/type     "event"
-           :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
-           :kixi.comms.event/key        event-key
-           :kixi.comms.event/version    event-version
-           :kixi.comms.event/created-at (t/timestamp)
-           :kixi.comms.event/payload    payload
-           :kixi.comms.event/origin     origin}]
-    (if command-id
-      (assoc r :kixi.comms.command/id command-id)
-      r)))
-
 (defn create-producer
   [in-chan topics origin broker-list]
   (let [key-serializer     (serializers/string-serializer)
@@ -109,13 +65,13 @@
               (if msg
                 (let [[topic-key _ _ _ _ opts] msg
                       topic     (get topics topic-key)
-                      formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                      formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
                       _ (when comms/*verbose-logging*
                           (info "Sending msg to Kafka topic" topic ":" formatted))
                       rm        (pp/send-sync! producer topic nil
                                                (or (:kixi.comms.command/id formatted)
                                                    (:kixi.comms.event/id formatted))
-                                               (clj->transit formatted) po)]
+                                               (msg/clj->transit formatted) po)]
                   (recur))
                 (.close producer))))))
       (catch Exception e
@@ -228,7 +184,7 @@
         (loop []
           (let [pack (cp/poll! consumer)]
             (when-let [msgs (seq (keep (comp process-msg?-fn
-                                             transit->clj
+                                             msg/transit->clj
                                              :value)
                                        (keep identity
                                              (into [] pack))))]
