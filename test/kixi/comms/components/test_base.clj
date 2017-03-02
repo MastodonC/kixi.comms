@@ -1,5 +1,6 @@
 (ns kixi.comms.components.test-base
-  (:require [com.stuartsierra.component :as component]))
+  (:require [com.stuartsierra.component :as component]
+            [taoensso.timbre :as timbre :refer [error info]]))
 
 (def wait-tries 160)
 (def wait-per-try 100)
@@ -18,10 +19,12 @@
   [system-func system-atom]
   (fn [all-tests]
     [all-tests]
-    (system-func system-atom)
-    (all-tests)
-    (component/stop-system @system-atom)
-    (reset! system-atom nil)))
+    (timbre/with-merged-config
+      {:level :info}
+      (system-func system-atom)
+      (all-tests)
+      (component/stop-system @system-atom)
+      (reset! system-atom nil))))
 
 (defn wait-for-atom
   ([a]

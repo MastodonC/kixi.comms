@@ -77,50 +77,6 @@
       (catch Exception e
         (error e (str "Producer Exception1, pc=" pc ", po=" po))))))
 
-(defn process-msg?
-  ([msg-type pred]
-   (fn [msg]
-     (when (and (= (name msg-type)
-                   (:kixi.comms.message/type msg))
-                (pred msg))
-       msg)))
-  ([msg-type event version]
-   (fn [msg]
-     (when (and
-            (= (name msg-type)
-               (:kixi.comms.message/type msg))
-            (= event
-               (or (:kixi.comms.command/key msg)
-                   (:kixi.comms.event/key msg)))
-            (= version
-               (or (:kixi.comms.command/version msg)
-                   (:kixi.comms.event/version msg))))
-       msg))))
-
-(defn handle-result
-  [kafka msg-type original result]
-  (when (or (= msg-type :command) result)
-    (if-not (s/valid? ::ks/event-result result)
-      (throw (Exception. (str "Handler must return a valid event result: "
-                              (s/explain-data ::ks/event-result result))))
-      (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
-                                       kixi.comms.event/version
-                                       kixi.comms.event/payload] :as f}]
-                (comms/send-event! kafka key version payload
-                                   {:command-id (:kixi.comms.command/id original)}))]
-        (if (sequential? result)
-          (run! send-event-fn! result)
-          (send-event-fn! result))))))
-
-(defn msg-handler-fn
-  [component-handler result-handler]
-  (fn [msg]
-    (async/thread
-      (try
-        (result-handler msg (component-handler msg))
-        (catch Exception e
-          (error e (str "Consumer exception processing msg. Msg: " msg)))))))
-
 (def custom-config-elements
   "These are some additional pieces of config that Kafka doesn't like"
   #{:heartbeat.interval.multiplier
@@ -232,9 +188,9 @@
     [this group-id map-key handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :event))
-                                   (process-msg? :event #(contains? % map-key))
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :event))
+                                   (msg/process-msg? :event #(contains? % map-key))
                                    kill-chan
                                    (build-consumer-config
                                     group-id
@@ -246,9 +202,9 @@
   (attach-event-handler! [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :event))
-                                   (process-msg? :event event version)
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :event))
+                                   (msg/process-msg? :event event version)
                                    kill-chan
                                    (build-consumer-config
                                     group-id
@@ -260,9 +216,9 @@
   (attach-command-handler! [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :command))
-                                   (process-msg? :command command version)
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :command))
+                                   (msg/process-msg? :command command version)
                                    kill-chan
                                    (build-consumer-config
                                     group-id

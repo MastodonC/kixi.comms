@@ -1,7 +1,56 @@
 (ns kixi.comms.messages
   (:require [cognitect.transit :as transit]
-            [kixi.comms.time :as t])
+            [clojure.spec :as s]
+            [clojure.core.async :as async]
+            [taoensso.timbre :as timbre :refer [error info]]
+            [kixi.comms.time :as t]
+            [kixi.comms :as comms]
+            [kixi.comms.schema :as ks])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
+
+(defn process-msg?
+  ([msg-type pred]
+   (fn [msg]
+     (when (and (= (name msg-type)
+                   (:kixi.comms.message/type msg))
+                (pred msg))
+       msg)))
+  ([msg-type event version]
+   (fn [msg]
+     (when (and
+            (= (name msg-type)
+               (:kixi.comms.message/type msg))
+            (= event
+               (or (:kixi.comms.command/key msg)
+                   (:kixi.comms.event/key msg)))
+            (= version
+               (or (:kixi.comms.command/version msg)
+                   (:kixi.comms.event/version msg))))
+       msg))))
+
+(defn handle-result
+  [comms-component msg-type original result]
+  (when (or (= msg-type :command) result)
+    (if-not (s/valid? ::ks/event-result result)
+      (throw (Exception. (str "Handler must return a valid event result: "
+                              (s/explain-data ::ks/event-result result))))
+      (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
+                                       kixi.comms.event/version
+                                       kixi.comms.event/payload] :as f}]
+                (comms/send-event! comms-component key version payload
+                                   {:command-id (:kixi.comms.command/id original)}))]
+        (if (sequential? result)
+          (run! send-event-fn! result)
+          (send-event-fn! result))))))
+
+(defn msg-handler-fn
+  [component-handler result-handler]
+  (fn [msg]
+    (async/thread
+      (try
+        (result-handler msg (component-handler msg))
+        (catch Exception e
+          (error e (str "Consumer exception processing msg. Msg: " msg)))))))
 
 (defn clj->transit
   ([m]
