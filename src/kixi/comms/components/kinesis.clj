@@ -23,14 +23,16 @@
   (kinesis/list-streams {:endpoint endpoint}))
 
 (defn create-streams!
-  [endpoint streams]
+  [endpoint streams create-delay]
   (let [{:keys [stream-names]} (list-streams endpoint)
+        create-delay (or create-delay 500)
         stream-names-set (set stream-names)
         shards 1]
     (run! (fn [stream-name]
             (when-not (contains? stream-names-set stream-name)
               (info "Creating stream" stream-name "with" shards "shard(s)!")
               (kinesis/create-stream {:endpoint endpoint} stream-name 1)
+              (Thread/sleep create-delay)
               (deref
                (future
                  (loop [n 0
@@ -41,31 +43,29 @@
                          (Thread/sleep 500)
                          (recur (inc n) (list-streams endpoint)))
                        (throw (Exception. "Failed to create stream:" stream-name))))))))) streams)))
-(defn create-worker
+(defn create-and-run-worker!
   [msg-handler process-msg?-fn
    {:keys [stream-name app-name kinesis-endpoint region checkpoint]
     :or {checkpoint 60}}]
   (info "Creating worker" stream-name kinesis-endpoint)
-  (first (kinesis/worker :app app-name
-                         :stream stream-name
-                         :endpoint kinesis-endpoint
-                         :checkpoint checkpoint
-                         :processor (fn [records]
-                                      (doseq [row records]
-                                        (println ">>>>"
-                                                 (:data row)
-                                                 (:sequence-number row)
-                                                 (:partition-key row)))))))
-
-(defn run-worker!
-  [w]
-  (info "Running worker" w)
-  (future (.run w)))
+  (let [w (first (kinesis/worker :app app-name
+                                 :stream stream-name
+                                 :endpoint kinesis-endpoint
+                                 :checkpoint checkpoint
+                                 :processor (fn [records]
+                                              (doseq [row records]
+                                                (println ">>>>"
+                                                         (:data row)
+                                                         (:sequence-number row)
+                                                         (:partition-key row))))))]
+    (info "Running worker" w)
+    [(future (.run w)) w]))
 
 (defn shutdown-worker!
-  [w]
+  [[f w]]
   (info "Shutting down worker" w)
-  (force (.shutdown w)))
+  (.shutdown w)
+  (deref f))
 
 (defn create-producer
   [endpoint stream-names origin in-chan]
@@ -84,7 +84,7 @@
             (recur)))))))
 
 (defrecord Kinesis [kinesis-endpoint dynamodb-endpoint region stream-names
-                    origin checkpoint
+                    origin checkpoint create-delay
                     producer-in-chan]
   comms/Communications
   (send-event! [comms event version payload]
@@ -111,17 +111,16 @@
   (attach-command-handler! [{:keys [stream-names workers] :as this}
                             group-id command version handler]
     (info "Attaching command handler for" command version)
-    (let [worker (create-worker (msg/msg-handler-fn handler
-                                                    (partial msg/handle-result this :command))
-                                (msg/process-msg? :command command version)
-                                {:stream-name (:command stream-names)
-                                 :app-name (sanitize-app-name group-id)
-                                 :kinesis-endpoint kinesis-endpoint
-                                 :checkpoint checkpoint
-                                 :region region})]
-      (swap! workers conj worker)
-      (run-worker! worker)
-      nil))
+    (let [[f w id :as worker] (create-and-run-worker! (msg/msg-handler-fn handler
+                                                                          (partial msg/handle-result this :command))
+                                                      (msg/process-msg? :command command version)
+                                                      {:stream-name (:command stream-names)
+                                                       :app-name (sanitize-app-name group-id)
+                                                       :kinesis-endpoint kinesis-endpoint
+                                                       :checkpoint checkpoint
+                                                       :region region})]
+      (swap! workers assoc id worker)
+      id))
 
   (detach-handler! [this handler]
     ;; TODO
@@ -143,10 +142,10 @@
                                    (catch Throwable _ "<unknown>")))
             producer-chan      (async/chan)]
         (info "Starting Kinesis Producer/Consumer")
-        (create-streams! kinesis-endpoint (vals stream-names))
+        (create-streams! kinesis-endpoint (vals stream-names) create-delay)
         (create-producer kinesis-endpoint stream-names origin producer-chan)
         (assoc component
-               :workers (atom [])
+               :workers (atom {})
                :stream-names stream-names
                :origin origin
                :producer-in-ch producer-chan))

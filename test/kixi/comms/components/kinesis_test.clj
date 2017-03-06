@@ -26,6 +26,7 @@
               :kinesis
               (map->Kinesis {:kinesis-endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
+                             :create-delay 1000
                              :region test-region
                              :stream-names test-stream-names}))))))
 

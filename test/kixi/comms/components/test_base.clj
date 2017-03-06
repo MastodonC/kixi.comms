@@ -2,8 +2,8 @@
   (:require [com.stuartsierra.component :as component]
             [taoensso.timbre :as timbre :refer [error info]]))
 
-(def wait-tries 160)
-(def wait-per-try 100)
+(def ^:dynamic *wait-tries* 160)
+(def ^:dynamic *wait-per-try* 100)
 
 (defn wait
   [ms]
@@ -28,9 +28,9 @@
 
 (defn wait-for-atom
   ([a]
-   (wait-for-atom a wait-tries))
+   (wait-for-atom a *wait-tries*))
   ([a tries]
-   (wait-for-atom a tries wait-per-try))
+   (wait-for-atom a tries *wait-per-try*))
   ([a tries ms]
    (wait-for-atom a tries ms identity))
   ([a tries ms predicate]

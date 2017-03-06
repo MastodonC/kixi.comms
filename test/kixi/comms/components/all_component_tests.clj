@@ -68,7 +68,7 @@
     (comms/attach-event-handler! component :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/attach-event-handler! component :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
     (comms/send-event! component :test/foo-e "1.0.0" {:test "multiple-handlers-get-same-message" :id id})
-    (wait-for-atom result wait-tries wait-per-try #(<= 2 (count %)))
+    (wait-for-atom result *wait-tries* *wait-per-try* #(<= 2 (count %)))
     (is @result)
     (is (= 2 (count @result)))
     (is (= (first @result) (second @result)))))
@@ -123,7 +123,7 @@
     (is @result)
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))
     (comms/send-event! component :test/foo-f "1.0.0" {:test "processing-time-gt-session-timeout-2" :id id2})
-    (wait-for-atom result wait-tries wait-per-try #(= id2 (get-in % [:kixi.comms.event/payload :id])))
+    (wait-for-atom result *wait-tries* *wait-per-try* #(= id2 (get-in % [:kixi.comms.event/payload :id])))
     (is @result)
     (is (= id2 (get-in @result [:kixi.comms.event/payload :id])))))
 
