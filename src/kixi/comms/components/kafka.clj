@@ -110,6 +110,8 @@
                 (let [[topic-key _ _ _ _ opts] msg
                       topic     (get topics topic-key)
                       formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                      _ (when comms/*verbose-logging*
+                          (info "Sending msg to Kafka topic" topic ":" formatted))
                       rm        (pp/send-sync! producer topic nil
                                                (or (:kixi.comms.command/id formatted)
                                                    (:kixi.comms.event/id formatted))
@@ -216,12 +218,13 @@
   [msg-handler process-msg?-fn kill-chan config]
   (async/thread
     (try
-      (let [^FranzConsumer consumer (consumer/make-consumer
+      (let [topic (:consumer.topic config)
+            ^FranzConsumer consumer (consumer/make-consumer
                                      (dissoc-custom config)
                                      (deserializers/string-deserializer)
                                      (deserializers/string-deserializer)
                                      (consumer-options config))
-            _ (cp/subscribe-to-partitions! consumer (:consumer.topic config))]
+            _ (cp/subscribe-to-partitions! consumer topic)]
         (loop []
           (let [pack (cp/poll! consumer)]
             (when-let [msgs (seq (keep (comp process-msg?-fn
@@ -231,6 +234,8 @@
                                              (into [] pack))))]
               (cp/pause! consumer (cp/assigned-partitions consumer))
               (doseq [msg msgs]
+                (when comms/*verbose-logging*
+                  (info "Received msg from Kafka topic" topic  ":" msg))
                 (let [result-ch (msg-handler msg)]
                   (loop []
                     (let [[val port] (async/alts!! [result-ch

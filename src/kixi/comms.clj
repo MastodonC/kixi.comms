@@ -1,5 +1,11 @@
 (ns kixi.comms)
 
+(def ^:dynamic *verbose-logging* false)
+
+(defn set-verbose-logging!
+  [v]
+  (alter-var-root #'*verbose-logging* (fn [_] v)))
+
 (defprotocol Communications
   "send-event opts: command-id
    send-command opts: origin, id"
