@@ -15,6 +15,7 @@ lein test
 If you're using Kinesalite, you will need to use
 
 ``` bash
+# https://github.com/mhart/kinesalite#cbor-protocol-issues-with-the-java-sdk
 AWS_CBOR_DISABLE=1 lein test
 ```
 

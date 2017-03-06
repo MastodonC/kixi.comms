@@ -183,9 +183,11 @@
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
-
   (attach-event-with-key-handler!
     [this group-id map-key handler]
+    (comms/attach-event-with-key-handler! this group-id map-key handler {}))
+  (attach-event-with-key-handler!
+    [this group-id map-key handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler
@@ -199,7 +201,11 @@
                                     (:consumer-config this)))]
       (swap! consumer-loops assoc handler kill-chan)
       handler))
-  (attach-event-handler! [this group-id event version handler]
+  (attach-event-handler!
+    [this group-id event version handler]
+    (comms/attach-event-handler! this group-id event version handler {}))
+  (attach-event-handler!
+    [this group-id event version handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler
@@ -213,7 +219,11 @@
                                     (:consumer-config this)))]
       (swap! consumer-loops assoc handler kill-chan)
       handler))
-  (attach-command-handler! [this group-id command version handler]
+  (attach-command-handler!
+    [this group-id command version handler]
+    (comms/attach-command-handler! this group-id command version handler {}))
+  (attach-command-handler!
+    [this group-id command version handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler

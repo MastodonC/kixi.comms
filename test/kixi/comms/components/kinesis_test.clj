@@ -20,6 +20,7 @@
 (defn kinesis-system
   [system]
   (when-not @system
+    (comms/set-verbose-logging! true)
     (reset! system
             (component/start-system
              (component/system-map
@@ -33,4 +34,8 @@
 (use-fixtures :once (cycle-system-fixture kinesis-system system))
 
 (deftest kinesis-command-roundtrip-test
-  (all-tests/command-roundtrip-test (:kinesis @system)))
+  (binding [*wait-per-try* 500]
+    (all-tests/command-roundtrip-test
+     (:kinesis @system)
+     {:initial-position-in-stream :TRIM_HORIZON
+      :checkpoint 30})))

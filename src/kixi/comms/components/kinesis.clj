@@ -45,25 +45,29 @@
                        (throw (Exception. "Failed to create stream:" stream-name))))))))) streams)))
 (defn create-and-run-worker!
   [msg-handler process-msg?-fn
-   {:keys [stream-name app-name kinesis-endpoint region checkpoint]
-    :or {checkpoint 60}}]
-  (info "Creating worker" stream-name kinesis-endpoint)
-  (let [w (first (kinesis/worker :app app-name
-                                 :stream stream-name
-                                 :endpoint kinesis-endpoint
-                                 :checkpoint checkpoint
-                                 :processor (fn [records]
-                                              (doseq [row records]
-                                                (println ">>>>"
-                                                         (:data row)
-                                                         (:sequence-number row)
-                                                         (:partition-key row))))))]
-    (info "Running worker" w)
-    [(future (.run w)) w]))
+   {:keys [stream-name app-name kinesis-endpoint region checkpoint initial-position-in-stream]
+    :or {checkpoint 60
+         initial-position-in-stream :LATEST}}]
+  (info "Creating worker" stream-name kinesis-endpoint initial-position-in-stream)
+  (let [[w id] (kinesis/worker :app app-name
+                               :stream stream-name
+                               :endpoint kinesis-endpoint
+                               :checkpoint checkpoint
+                               :initial-position-in-stream initial-position-in-stream
+                               :processor (fn [records]
+                                            (doseq [row records]
+                                              (when comms/*verbose-logging*
+                                                (info "Received msg from Kinesis stream" stream-name ":" row))
+                                              (println ">>>>"
+                                                       (:data row)
+                                                       (:sequence-number row)
+                                                       (:partition-key row)))))]
+    (info "Running worker" id w)
+    [(future (.run w)) w id]))
 
 (defn shutdown-worker!
-  [[f w]]
-  (info "Shutting down worker" w)
+  [[f w id]]
+  (info "Shutting down worker" id w)
   (.shutdown w)
   (deref f))
 
@@ -73,10 +77,11 @@
     (loop []
       (let [msg (async/<! in-chan)]
         (if msg
-          (let [_ (info "Sending message" msg)
-                [stream-name-key _ _ _ _ opts] msg
+          (let [[stream-name-key _ _ _ _ opts] msg
                 stream-name (get stream-names stream-name-key)
                 formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))]
+            (when comms/*verbose-logging*
+              (info "Sending msg to Kinesis stream" stream-name ":" formatted))
             (kinesis/put-record {:endpoint endpoint}
                                 stream-name
                                 formatted
@@ -103,22 +108,34 @@
 
   (attach-event-with-key-handler!
     [this group-id map-key handler]
+    (comms/attach-event-with-key-handler! this group-id map-key handler {}))
+  (attach-event-with-key-handler!
+    [this group-id map-key handler opts]
     ;; TODO
     )
-  (attach-event-handler! [this group-id event version handler]
+  (attach-event-handler!
+    [this group-id event version handler]
+    (comms/attach-event-handler! this group-id event version handler {}))
+  (attach-event-handler!
+    [this group-id event version handler opts]
     ;; TODO
     )
-  (attach-command-handler! [{:keys [stream-names workers] :as this}
-                            group-id command version handler]
-    (info "Attaching command handler for" command version)
-    (let [[f w id :as worker] (create-and-run-worker! (msg/msg-handler-fn handler
+  (attach-command-handler!
+    [this group-id command version handler]
+    (comms/attach-command-handler! this group-id command version handler {}))
+  (attach-command-handler!
+    [{:keys [stream-names workers] :as this}
+     group-id command version handler opts]
+    (info "Attaching command handler for" command version "|" opts)
+    (let [[_ _ id :as worker] (create-and-run-worker! (msg/msg-handler-fn handler
                                                                           (partial msg/handle-result this :command))
                                                       (msg/process-msg? :command command version)
-                                                      {:stream-name (:command stream-names)
-                                                       :app-name (sanitize-app-name group-id)
-                                                       :kinesis-endpoint kinesis-endpoint
-                                                       :checkpoint checkpoint
-                                                       :region region})]
+                                                      (merge {:stream-name (:command stream-names)
+                                                              :app-name (sanitize-app-name group-id)
+                                                              :kinesis-endpoint kinesis-endpoint
+                                                              :checkpoint checkpoint
+                                                              :region region}
+                                                             opts))]
       (swap! workers assoc id worker)
       id))
 
@@ -135,7 +152,8 @@
                                           "com.amazonaws.auth.*"
                                           "com.amazonaws.services.kinesis.metrics.*"
                                           "com.amazonaws.services.kinesis.leases.*"
-                                          "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ShardConsumer"]})
+                                          "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ShardConsumer"
+                                          "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ProcessTask"]})
     (if-not (:producer-in-ch component)
       (let [stream-names (or stream-names {:command "command" :event "event"})
             origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
@@ -156,7 +174,7 @@
         (do
           (info "Stopping Kinesis Producer/Consumer")
           (async/close! producer-in-ch)
-          (run! shutdown-worker! @workers)
+          (run! shutdown-worker! (vals @workers))
           (dissoc component
                   :workers
                   :stream-names

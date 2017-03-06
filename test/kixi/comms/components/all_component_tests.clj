@@ -29,10 +29,10 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn command-roundtrip-test
-  [component]
+  [component opts]
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! component :component-a :test/foo "1.0.0" (partial reset-as-event! result))
+    (comms/attach-command-handler! component :component-a-foobar :test/foo "1.0.0" (partial reset-as-event! result) opts)
     (comms/send-command! component :test/foo "1.0.0" user {:test "command-roundtrip-test" :id id})
     (wait-for-atom result)
     (is @result)
