@@ -21,7 +21,7 @@
                  [mastondonc/franzy "0.0.3" :exclusions [org.slf4j/slf4j-log4j12]]
                  [zookeeper-clj "0.9.4" :exclusions [org.slf4j/slf4j-log4j12 log4j]]
                  ;; Kinesis
-                 [amazonica "0.3.86" :exclusions [com.taoensso/encore]]
+                 [amazonica "0.3.90" :exclusions [com.taoensso/encore]]
                  [byte-streams "0.2.2"]]
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}

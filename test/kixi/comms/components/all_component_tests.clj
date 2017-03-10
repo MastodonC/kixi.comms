@@ -10,20 +10,20 @@
   (keyword (str (java.util.UUID/randomUUID))))
 
 (defn attach-command-handler!
-  [component event handler]
+  [component event handler opts]
   (comms/attach-command-handler! component
                                  (component-name)
                                  event
                                  "1.0.0"
-                                 handler))
+                                 handler opts))
 
 (defn attach-event-handler!
-  [component event handler]
+  [component event handler opts]
   (comms/attach-event-handler! component
                                (component-name)
                                event
                                "1.0.0"
-                               handler))
+                               handler opts))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -39,22 +39,22 @@
     (is (= id (get-in @result [:kixi.comms.command/payload :id])))))
 
 (defn event-roundtrip-test
-  [component]
+  [component opts]
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! component :component-b :test/foo-b "1.0.0" (partial reset-as-event! result))
+    (comms/attach-event-handler! component :component-b :test/foo-b "1.0.0" (partial reset-as-event! result) opts)
     (comms/send-event! component :test/foo-b "1.0.0" {:test "event-roundtrip-tes" :id id})
     (wait-for-atom result)
     (is @result)
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))))
 
 (defn only-correct-handler-gets-message
-  [component]
+  [component opts]
   (let [result (atom nil)
         fail (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! component :component-c :test/foo-c "1.0.0" (partial reset-as-event! result))
-    (comms/attach-event-handler! component :component-d :test/foo-c "1.0.1" (partial reset-as-event! fail))
+    (comms/attach-event-handler! component :component-c :test/foo-c "1.0.0" (partial reset-as-event! result) opts)
+    (comms/attach-event-handler! component :component-d :test/foo-c "1.0.1" (partial reset-as-event! fail) opts)
     (comms/send-event! component :test/foo-c "1.0.0" {:test "only-correct-handler-gets-message" :id id})
     (wait-for-atom result)
     (is (not @fail))
@@ -62,11 +62,11 @@
     (is (= id (get-in @result [:kixi.comms.event/payload :id])))))
 
 (defn multiple-handlers-get-same-message
-  [component]
+  [component opts]
   (let [result (atom [])
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! component :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
-    (comms/attach-event-handler! component :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result))
+    (comms/attach-event-handler! component :component-e :test/foo-e "1.0.0" (partial swap-conj-as-event! result) opts)
+    (comms/attach-event-handler! component :component-f :test/foo-e "1.0.0" (partial swap-conj-as-event! result) opts)
     (comms/send-event! component :test/foo-e "1.0.0" {:test "multiple-handlers-get-same-message" :id id})
     (wait-for-atom result *wait-tries* *wait-per-try* #(<= 2 (count %)))
     (is @result)
@@ -74,12 +74,12 @@
     (is (= (first @result) (second @result)))))
 
 (defn roundtrip-command->event
-  [component]
+  [component opts]
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! component :component-g :test/test-a "1.0.0" (partial reset-as-event! c-result))
-    (comms/attach-event-handler! component :component-h :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil))
+    (comms/attach-command-handler! component :component-g :test/test-a "1.0.0" (partial reset-as-event! c-result) opts)
+    (comms/attach-event-handler! component :component-h :test/test-a-event "1.0.0" (fn [x] (reset! e-result x) nil) opts)
     (comms/send-command! component :test/test-a "1.0.0" user {:test "roundtrip-command->event" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
@@ -91,15 +91,15 @@
     (is (= (:kixi.comms.command/id @c-result) (:kixi.comms.command/id @e-result)))))
 
 (defn roundtrip-command->event-with-key
-  [component]
+  [component opts]
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! component :component-j :test/test-xyz "1.0.0" (partial reset-as-event! c-result))
+    (comms/attach-command-handler! component :component-j :test/test-xyz "1.0.0" (partial reset-as-event! c-result) opts)
     (comms/attach-event-with-key-handler! component
                                           :component-k
                                           :kixi.comms.command/id
-                                          (fn [x] (reset! e-result x) nil))
+                                          (fn [x] (reset! e-result x) nil) opts)
     (comms/send-command! component :test/test-xyz "1.0.0" user {:test "roundtrip-command->event-with-key" :id id})
     (wait-for-atom c-result)
     (wait-for-atom e-result)
@@ -111,13 +111,13 @@
     (is (= (:kixi.comms.command/id @c-result) (:kixi.comms.command/id @e-result)))))
 
 (defn processing-time-gt-session-timeout
-  [component]
+  [component opts]
   (comment "If processing time is greater than the session time out, kafka will boot the consumer. Our consumer needs to pause the paritions and continue to call poll while a large job is processing.")
   (let [result (atom nil)
         id (str (java.util.UUID/randomUUID))
         id2 (str (java.util.UUID/randomUUID))]
     (comms/attach-event-handler! component :component-i :test/foo-f "1.0.0" #(do (wait long-session-timeout)
-                                                                                 (reset-as-event! result %)))
+                                                                                 (reset-as-event! result %)) opts)
     (comms/send-event! component :test/foo-f "1.0.0" {:test "processing-time-gt-session-timeout" :id id})
     (wait-for-atom result)
     (is @result)
@@ -128,14 +128,14 @@
     (is (= id2 (get-in @result [:kixi.comms.event/payload :id])))))
 
 (defn detaching-a-handler
-  [component]
+  [component opts]
   (let [c-result (atom nil)
         e-result (atom nil)
         id (str (java.util.UUID/randomUUID))]
     (attach-command-handler! component :test/test-a
-                             (partial reset-as-event! c-result))
+                             (partial reset-as-event! c-result) opts)
     (let [eh (attach-event-handler! component :test/test-a-event
-                                    (fn [x] (reset! e-result x) nil))]
+                                    (fn [x] (reset! e-result x) nil) opts)]
       (comms/send-command! component :test/test-a "1.0.0" user {:test "detaching-a-handler" :id id})
       (wait-for-atom c-result)
       (wait-for-atom e-result)
