@@ -13,8 +13,8 @@
             [amazonica.aws.dynamodbv2 :as ddb]
             [amazonica.aws.kinesis :as kinesis]))
 
-(def test-kinesis (or (env :kinesis-endpoint) "kinesis.eu-central-1.amazonaws.com" #_"http://localhost:4567"))
-(def test-dynamodb (or (env :dynamodb-endpoint) "dynamodb.eu-central-1.amazonaws.com" #_"http://localhost:8000"))
+(def test-kinesis (or (env :kinesis-endpoint) "http://localhost:4567"))
+(def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
 (def test-region "eu-central-1")
 (def test-stream-names {:command "kixi-comms-test-command"
                         :event   "kixi-comms-test-event"})
