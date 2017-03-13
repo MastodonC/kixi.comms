@@ -43,7 +43,7 @@
           (run! (partial ddb/delete-table {:endpoint test-dynamodb} :table-name) group-seq)
           (loop [tables group-seq]
             (when (not-empty tables)
-              (recur (filter table-exists? tables)))))
+              (recur (doall (filter table-exists? tables))))))
 
         (info "Deleting streams...")
         (run! (partial kinesis/delete-stream {:endpoint test-kinesis}) (vals test-stream-names))
