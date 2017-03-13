@@ -21,6 +21,12 @@
 
 (def system (atom nil))
 
+(defn table-exists?
+  [table]
+  (try
+    (ddb/describe-table {:endpoint test-dynamodb} table)
+    (catch Exception e false)))
+
 (defn cycle-system-fixture*
   [system-func system-atom]
   (fn [all-tests]
@@ -31,10 +37,17 @@
       (all-tests)
       (let [seen-groups (get-group-ids-seen (:kinesis @system-atom))]
         (component/stop-system @system-atom)
+
         (info "Deleting tables...")
-        (run! (partial ddb/delete-table {:endpoint test-dynamodb} :table-name) seen-groups)
+        (doseq [group-seq (partition-all 10 seen-groups)]
+          (run! (partial ddb/delete-table {:endpoint test-dynamodb} :table-name) group-seq)
+          (loop [tables group-seq]
+            (when (not-empty tables)
+              (recur (filter table-exists? tables)))))
+
         (info "Deleting streams...")
         (run! (partial kinesis/delete-stream {:endpoint test-kinesis}) (vals test-stream-names))
+
         (info "Finished")
         (reset! system-atom nil)))))
 
