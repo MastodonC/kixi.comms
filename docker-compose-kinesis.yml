@@ -1,0 +1,11 @@
+version: '2'
+services:
+  kinesis:
+    image: vsouza/kinesis-local
+    ports:
+      - '4567:4567'
+    command: -p 4567
+  dynamo:
+    image: rajatvig/dynalite-alpine
+    ports:
+      - '8000:8000'

@@ -4,12 +4,19 @@ Library which provides a common communications model (protocol & implementations
 
 ## Tests
 
-To run tests, you need Kafka and Zookeeper running which are provided by `docker-compose.yml`
+To run tests, you need Kafka and Zookeeper running which are provided by `docker-compose-kafka.yml` and/or Kinesis, which is provided by `docker-compose-kinesis.yml`
 
 ``` bash
 docker-compose up -d
 ... wait a few seconds ...
 lein test
+```
+
+If you're using Kinesalite, you will need to use
+
+``` bash
+# https://github.com/mhart/kinesalite#cbor-protocol-issues-with-the-java-sdk
+AWS_CBOR_DISABLE=1 lein test
 ```
 
 ## License

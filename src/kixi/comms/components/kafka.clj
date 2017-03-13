@@ -2,7 +2,6 @@
   (:require [cheshire.core :refer [parse-string]]
             [clojure.spec :as s]
             [clojure.core.async :as async]
-            [cognitect.transit :as transit]
             [com.stuartsierra.component :as component]
             [franzy.clients.consumer
              [callbacks :as callbacks]
@@ -19,6 +18,7 @@
             [kixi.comms :as comms]
             [kixi.comms.time :as t]
             [kixi.comms.schema :as ks]
+            [kixi.comms.messages :as msg]
             [taoensso.timbre :as timbre :refer [error info]]
             [zookeeper :as zk])
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
@@ -47,50 +47,6 @@
         (when @z
           (zk/close @z))))))
 
-(defn clj->transit
-  ([m]
-   (clj->transit m :json))
-  ([m t]
-   (let [out (ByteArrayOutputStream. 4096)
-         writer (transit/writer out t)]
-     (transit/write writer m)
-     (.toString out))))
-
-(defn transit->clj
-  ([s]
-   (transit->clj s :json))
-  ([^String s t]
-   (let [in (ByteArrayInputStream. (.getBytes s))
-         reader (transit/reader in t)]
-     (transit/read reader))))
-
-(defmulti format-message (fn [t _ _ _ _ _] t))
-
-(defmethod format-message
-  :command
-  [_ command-key command-version user payload {:keys [id created-at]}]
-  {:kixi.comms.message/type       "command"
-   :kixi.comms.command/id         (or id (str (java.util.UUID/randomUUID)))
-   :kixi.comms.command/key        command-key
-   :kixi.comms.command/version    command-version
-   :kixi.comms.command/created-at (or created-at (t/timestamp))
-   :kixi.comms.command/payload    payload
-   :kixi.comms.command/user       user})
-
-(defmethod format-message
-  :event
-  [_ event-key event-version _ payload {:keys [origin command-id]}]
-  (let [r {:kixi.comms.message/type     "event"
-           :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
-           :kixi.comms.event/key        event-key
-           :kixi.comms.event/version    event-version
-           :kixi.comms.event/created-at (t/timestamp)
-           :kixi.comms.event/payload    payload
-           :kixi.comms.event/origin     origin}]
-    (if command-id
-      (assoc r :kixi.comms.command/id command-id)
-      r)))
-
 (defn create-producer
   [in-chan topics origin broker-list]
   (let [key-serializer     (serializers/string-serializer)
@@ -109,61 +65,17 @@
               (if msg
                 (let [[topic-key _ _ _ _ opts] msg
                       topic     (get topics topic-key)
-                      formatted (apply format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                      formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
                       _ (when comms/*verbose-logging*
                           (info "Sending msg to Kafka topic" topic ":" formatted))
                       rm        (pp/send-sync! producer topic nil
                                                (or (:kixi.comms.command/id formatted)
                                                    (:kixi.comms.event/id formatted))
-                                               (clj->transit formatted) po)]
+                                               (msg/clj->transit formatted) po)]
                   (recur))
                 (.close producer))))))
       (catch Exception e
         (error e (str "Producer Exception1, pc=" pc ", po=" po))))))
-
-(defn process-msg?
-  ([msg-type pred]
-   (fn [msg]
-     (when (and (= (name msg-type)
-                   (:kixi.comms.message/type msg))
-                (pred msg))
-       msg)))
-  ([msg-type event version]
-   (fn [msg]
-     (when (and
-            (= (name msg-type)
-               (:kixi.comms.message/type msg))
-            (= event
-               (or (:kixi.comms.command/key msg)
-                   (:kixi.comms.event/key msg)))
-            (= version
-               (or (:kixi.comms.command/version msg)
-                   (:kixi.comms.event/version msg))))
-       msg))))
-
-(defn handle-result
-  [kafka msg-type original result]
-  (when (or (= msg-type :command) result)
-    (if-not (s/valid? ::ks/event-result result)
-      (throw (Exception. (str "Handler must return a valid event result: "
-                              (s/explain-data ::ks/event-result result))))
-      (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
-                                       kixi.comms.event/version
-                                       kixi.comms.event/payload] :as f}]
-                (comms/send-event! kafka key version payload
-                                   {:command-id (:kixi.comms.command/id original)}))]
-        (if (sequential? result)
-          (run! send-event-fn! result)
-          (send-event-fn! result))))))
-
-(defn msg-handler-fn
-  [component-handler result-handler]
-  (fn [msg]
-    (async/thread
-      (try
-        (result-handler msg (component-handler msg))
-        (catch Exception e
-          (error e (str "Consumer exception processing msg. Msg: " msg)))))))
 
 (def custom-config-elements
   "These are some additional pieces of config that Kafka doesn't like"
@@ -228,7 +140,7 @@
         (loop []
           (let [pack (cp/poll! consumer)]
             (when-let [msgs (seq (keep (comp process-msg?-fn
-                                             transit->clj
+                                             msg/transit->clj
                                              :value)
                                        (keep identity
                                              (into [] pack))))]
@@ -271,14 +183,16 @@
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
-
   (attach-event-with-key-handler!
     [this group-id map-key handler]
+    (comms/attach-event-with-key-handler! this group-id map-key handler {}))
+  (attach-event-with-key-handler!
+    [this group-id map-key handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :event))
-                                   (process-msg? :event #(contains? % map-key))
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :event))
+                                   (msg/process-msg? :event #(contains? % map-key))
                                    kill-chan
                                    (build-consumer-config
                                     group-id
@@ -287,12 +201,16 @@
                                     (:consumer-config this)))]
       (swap! consumer-loops assoc handler kill-chan)
       handler))
-  (attach-event-handler! [this group-id event version handler]
+  (attach-event-handler!
+    [this group-id event version handler]
+    (comms/attach-event-handler! this group-id event version handler {}))
+  (attach-event-handler!
+    [this group-id event version handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :event))
-                                   (process-msg? :event event version)
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :event))
+                                   (msg/process-msg? :event event version)
                                    kill-chan
                                    (build-consumer-config
                                     group-id
@@ -301,12 +219,16 @@
                                     (:consumer-config this)))]
       (swap! consumer-loops assoc handler kill-chan)
       handler))
-  (attach-command-handler! [this group-id command version handler]
+  (attach-command-handler!
+    [this group-id command version handler]
+    (comms/attach-command-handler! this group-id command version handler {}))
+  (attach-command-handler!
+    [this group-id command version handler _]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
-          handler (create-consumer (msg-handler-fn handler
-                                                   (partial handle-result this :command))
-                                   (process-msg? :command command version)
+          handler (create-consumer (msg/msg-handler-fn handler
+                                                       (partial msg/handle-result this :command))
+                                   (msg/process-msg? :command command version)
                                    kill-chan
                                    (build-consumer-config
                                     group-id
