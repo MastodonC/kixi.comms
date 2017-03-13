@@ -5,13 +5,14 @@
              [test :refer :all]]
             [com.stuartsierra.component :as component]
             [taoensso.timbre :as timbre :refer [error info]]
+            [environ.core :refer [env]]
             [kixi.comms.schema]
             [kixi.comms :as comms]
             [kixi.comms.components.test-base :refer :all]
             [kixi.comms.components.all-component-tests :as all-tests]))
 
-(def test-kinesis "http://localhost:4567")
-(def test-dynamodb "http://localhost:8000")
+(def test-kinesis (or (env :kinesis-endpoint) "http://localhost:4567"))
+(def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
 (def test-region "eu-central-1")
 (def test-stream-names {:command "kixi-comms-test-command"
                         :event   "kixi-comms-test-event"})

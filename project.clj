@@ -17,6 +17,7 @@
                  [org.slf4j/log4j-over-slf4j ~slf4j-version]
                  [org.slf4j/jul-to-slf4j ~slf4j-version]
                  [org.slf4j/jcl-over-slf4j ~slf4j-version]
+                 [environ "1.1.0"]
                  ;; Kafka
                  [mastondonc/franzy "0.0.3" :exclusions [org.slf4j/slf4j-log4j12]]
                  [zookeeper-clj "0.9.4" :exclusions [org.slf4j/slf4j-log4j12 log4j]]
