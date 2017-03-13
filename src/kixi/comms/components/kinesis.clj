@@ -20,6 +20,10 @@
            (clojure.string/replace #"\:" "")
            (clojure.string/replace #"\/" "_"))))
 
+(defn get-group-ids-seen
+  [{:keys [group-ids-seen]}]
+  @group-ids-seen)
+
 (defn list-streams
   [endpoint]
   (kinesis/list-streams {:endpoint endpoint}))
@@ -136,66 +140,72 @@
     [this group-id map-key handler]
     (comms/attach-event-with-key-handler! this group-id map-key handler {}))
   (attach-event-with-key-handler!
-    [{:keys [stream-names workers] :as this}
+    [{:keys [stream-names workers group-ids-seen] :as this}
      group-id map-key handler opts]
     (info "Attaching event-with-key handler for" map-key)
-    (let [[_ _ id :as worker]
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          [_ _ id :as worker]
           (create-and-run-worker!
            (msg/msg-handler-fn handler
                                (partial msg/handle-result this :event))
            (msg/process-msg? :event #(contains? % map-key))
            (merge {:stream-name (:event stream-names)
-                   :app-name (sanitize-app-name profile group-id)
+                   :app-name sanitized-app-name
                    :dynamodb-endpoint dynamodb-endpoint
                    :kinesis-endpoint kinesis-endpoint
                    :checkpoint checkpoint
                    :region region}
                   opts))]
       (swap! workers assoc id worker)
+      (swap! group-ids-seen conj sanitized-app-name)
       id)
     )
   (attach-event-handler!
     [this group-id event version handler]
     (comms/attach-event-handler! this group-id event version handler {}))
   (attach-event-handler!
-    [{:keys [stream-names workers] :as this}
+    [{:keys [stream-names workers group-ids-seen] :as this}
      group-id event version handler opts]
     (info "Attaching event handler for" event version)
-    (let [[_ _ id :as worker]
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          [_ _ id :as worker]
           (create-and-run-worker!
            (msg/msg-handler-fn handler
                                (partial msg/handle-result this :event))
            (msg/process-msg? :event event version)
            (merge {:stream-name (:event stream-names)
-                   :app-name (sanitize-app-name profile group-id)
+                   :app-name sanitized-app-name
                    :dynamodb-endpoint dynamodb-endpoint
                    :kinesis-endpoint kinesis-endpoint
                    :checkpoint checkpoint
                    :region region}
                   opts))]
       (swap! workers assoc id worker)
+      (swap! group-ids-seen conj sanitized-app-name)
       id)
     )
   (attach-command-handler!
     [this group-id command version handler]
     (comms/attach-command-handler! this group-id command version handler {}))
   (attach-command-handler!
-    [{:keys [stream-names workers] :as this}
+    [{:keys [stream-names workers group-ids-seen] :as this}
      group-id command version handler opts]
     (info "Attaching command handler for" command version)
-    (let [[_ _ id :as worker]
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          [_ _ id :as worker]
           (create-and-run-worker!
            (msg/msg-handler-fn handler
                                (partial msg/handle-result this :command))
            (msg/process-msg? :command command version)
            (merge {:stream-name (:command stream-names)
-                   :app-name (sanitize-app-name profile group-id)
+                   :app-name sanitized-app-name
                    :dynamodb-endpoint dynamodb-endpoint
                    :kinesis-endpoint kinesis-endpoint
                    :checkpoint checkpoint
                    :region region}
                   opts))]
       (swap! workers assoc id worker)
+      (swap! group-ids-seen conj sanitized-app-name)
       id))
 
   (detach-handler! [{:keys [workers] :as this} worker-id]
@@ -210,6 +220,7 @@
                                           "com.amazonaws.requestId"
                                           "com.amazonaws.auth"
                                           "com.amazonaws.auth.*"
+                                          "com.amazonaws.internal.SdkSSLSocket"
                                           "com.amazonaws.services.kinesis.metrics.*"
                                           "com.amazonaws.services.kinesis.leases.*"
                                           "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ShardConsumer"
@@ -223,6 +234,7 @@
         (create-streams! kinesis-endpoint (vals stream-names) create-delay)
         (create-producer kinesis-endpoint stream-names origin producer-chan)
         (assoc component
+               :group-ids-seen (atom [])
                :workers (atom {})
                :stream-names stream-names
                :origin origin
@@ -236,6 +248,7 @@
           (async/close! producer-in-ch)
           (run! shutdown-worker! (vals @workers))
           (dissoc component
+                  :group-ids-seen
                   :workers
                   :stream-names
                   :origin

@@ -9,15 +9,34 @@
             [kixi.comms.schema]
             [kixi.comms :as comms]
             [kixi.comms.components.test-base :refer :all]
-            [kixi.comms.components.all-component-tests :as all-tests]))
+            [kixi.comms.components.all-component-tests :as all-tests]
+            [amazonica.aws.dynamodbv2 :as ddb]
+            [amazonica.aws.kinesis :as kinesis]))
 
-(def test-kinesis (or (env :kinesis-endpoint) "http://localhost:4567"))
-(def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
+(def test-kinesis (or (env :kinesis-endpoint) "kinesis.eu-central-1.amazonaws.com" #_"http://localhost:4567"))
+(def test-dynamodb (or (env :dynamodb-endpoint) "dynamodb.eu-central-1.amazonaws.com" #_"http://localhost:8000"))
 (def test-region "eu-central-1")
 (def test-stream-names {:command "kixi-comms-test-command"
                         :event   "kixi-comms-test-event"})
 
 (def system (atom nil))
+
+(defn cycle-system-fixture*
+  [system-func system-atom]
+  (fn [all-tests]
+    [all-tests]
+    (timbre/with-merged-config
+      {:level :info}
+      (system-func system-atom)
+      (all-tests)
+      (let [seen-groups (get-group-ids-seen (:kinesis @system-atom))]
+        (component/stop-system @system-atom)
+        (info "Deleting tables...")
+        (run! (partial ddb/delete-table {:endpoint test-dynamodb} :table-name) seen-groups)
+        (info "Deleting streams...")
+        (run! (partial kinesis/delete-stream {:endpoint test-kinesis}) (vals test-stream-names))
+        (info "Finished")
+        (reset! system-atom nil)))))
 
 (defn kinesis-system
   [system]
@@ -34,15 +53,7 @@
                              :region test-region
                              :stream-names test-stream-names}))))))
 
-(defn reset-streams!
-  [stream-names]
-  (fn [all-tests]
-    (all-tests)
-    (info "Cleaning up streams")
-    (delete-streams! test-kinesis stream-names)))
-
-(use-fixtures :once (cycle-system-fixture kinesis-system system))
-#_(use-fixtures :each (reset-streams! (vals test-stream-names)))
+(use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
 (deftest kinesis-command-roundtrip-test
   (binding [*wait-per-try* 500]
@@ -80,6 +91,6 @@
                                                   {:initial-position-in-stream :TRIM_HORIZON})))
 
 (deftest kinesis-detaching-a-handler
-  (binding [*wait-per-try* 500]
+  (binding [*wait-per-try* 450]
     (all-tests/detaching-a-handler (:kinesis @system)
                                    {:initial-position-in-stream :TRIM_HORIZON})))

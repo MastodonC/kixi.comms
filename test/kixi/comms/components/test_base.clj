@@ -35,13 +35,14 @@
    (wait-for-atom a tries ms identity))
   ([a tries ms predicate]
    (loop [try tries]
-     (when (pos? try)
-       (if (and @a
-                (predicate @a))
-         @a
-         (do
-           (Thread/sleep ms)
-           (recur (dec try))))))))
+     (if (pos? try)
+       (let [result (when @a (predicate @a))]
+         (if (and @a result)
+           result
+           (do
+             (Thread/sleep ms)
+             (recur (dec try)))))
+       nil))))
 
 (defn reset-as-event!
   [a cmd]
