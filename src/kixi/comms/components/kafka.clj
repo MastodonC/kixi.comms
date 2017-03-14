@@ -170,8 +170,7 @@
 (defrecord Kafka [host port zk-path topics origin consumer-config
                   consumer-kill-ch consumer-kill-mult broker-list consumer-loops]
   comms/Communications
-  (send-event! [comms event version payload]
-    (comms/send-event! comms event version payload {}))
+
 
   (send-event! [{:keys [producer-in-ch]} event version payload opts]
     (when producer-in-ch
@@ -184,10 +183,7 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
   (attach-event-with-key-handler!
-    [this group-id map-key handler]
-    (comms/attach-event-with-key-handler! this group-id map-key handler {}))
-  (attach-event-with-key-handler!
-    [this group-id map-key handler _]
+      [this group-id map-key handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler
@@ -202,10 +198,7 @@
       (swap! consumer-loops assoc handler kill-chan)
       handler))
   (attach-event-handler!
-    [this group-id event version handler]
-    (comms/attach-event-handler! this group-id event version handler {}))
-  (attach-event-handler!
-    [this group-id event version handler _]
+      [this group-id event version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler
@@ -220,10 +213,7 @@
       (swap! consumer-loops assoc handler kill-chan)
       handler))
   (attach-command-handler!
-    [this group-id command version handler]
-    (comms/attach-command-handler! this group-id command version handler {}))
-  (attach-command-handler!
-    [this group-id command version handler _]
+      [this group-id command version handler]
     (let [kill-chan (async/chan)
           _ (async/tap consumer-kill-mult kill-chan)
           handler (create-consumer (msg/msg-handler-fn handler

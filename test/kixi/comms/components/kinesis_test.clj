@@ -13,11 +13,16 @@
             [amazonica.aws.dynamodbv2 :as ddb]
             [amazonica.aws.kinesis :as kinesis]))
 
-(def test-kinesis (or (env :kinesis-endpoint) "http://localhost:4567"))
+(def test-kinesis (or (env :kinesis-endpoint) "kinesis.eu-central-1.amazonaws.com"))
 (def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
 (def test-region "eu-central-1")
 (def test-stream-names {:command "kixi-comms-test-command"
                         :event   "kixi-comms-test-event"})
+(def app-name "kixi-comms")
+(def profile "test")
+
+(def dynamodb-table-names [(event-worker-app-name app-name profile)
+                           (command-worker-app-name app-name profile)])
 
 (def system (atom nil))
 
@@ -27,6 +32,15 @@
     (ddb/describe-table {:endpoint test-dynamodb} table)
     (catch Exception e false)))
 
+(defn clear-tables
+  [endpoint table-names]
+  (doseq [sub-table-names (partition-all 10 table-names)]
+    (doseq [table-name sub-table-names]
+      (ddb/delete-table {:endpoint endpoint} :table-name table-name))
+    (loop [tables sub-table-names]
+      (when (not-empty tables)
+        (recur (doall (filter table-exists? tables)))))))
+
 (defn cycle-system-fixture*
   [system-func system-atom]
   (fn [all-tests]
@@ -35,21 +49,17 @@
       {:level :info}
       (system-func system-atom)
       (all-tests)
-      (let [seen-groups (get-group-ids-seen (:kinesis @system-atom))]
-        (component/stop-system @system-atom)
 
-        (info "Deleting tables...")
-        (doseq [group-seq (partition-all 10 seen-groups)]
-          (run! (partial ddb/delete-table {:endpoint test-dynamodb} :table-name) group-seq)
-          (loop [tables group-seq]
-            (when (not-empty tables)
-              (recur (doall (filter table-exists? tables))))))
+      (component/stop-system @system-atom)
+      (reset! system-atom nil)
 
-        (info "Deleting streams...")
-        (run! (partial kinesis/delete-stream {:endpoint test-kinesis}) (vals test-stream-names))
+      (info "Deleting tables...")
+      (clear-tables test-dynamodb dynamodb-table-names)
 
-        (info "Finished")
-        (reset! system-atom nil)))))
+      (info "Deleting streams...")
+      (delete-streams! test-kinesis (vals test-stream-names))
+
+      (info "Finished"))))
 
 (defn kinesis-system
   [system]
@@ -59,51 +69,43 @@
             (component/start-system
              (component/system-map
               :kinesis
-              (map->Kinesis {:profile "test"
-                             :kinesis-endpoint test-kinesis
+              (map->Kinesis {:profile profile
+                             :app app-name
+                             :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
-                             :create-delay 1000
-                             :region test-region
-                             :stream-names test-stream-names}))))))
+                             :region-name test-region
+                             :streams test-stream-names
+                             :failover-time-millis 200
+                             :metric-level :NONE
+                             :idle-time-between-reads-in-millis 200
+                             :max-records 1}))))))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
+(def opts {})
+
 (deftest kinesis-command-roundtrip-test
   (binding [*wait-per-try* 500]
-    (all-tests/command-roundtrip-test (:kinesis @system)
-                                      {:initial-position-in-stream :TRIM_HORIZON})))
+    (all-tests/command-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-event-roundtrip-test
   (binding [*wait-per-try* 500]
-    (all-tests/event-roundtrip-test (:kinesis @system)
-                                    {:initial-position-in-stream :TRIM_HORIZON})))
+    (all-tests/event-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-only-correct-handler-gets-message
-  (binding [*wait-per-try* 500]
-    (all-tests/only-correct-handler-gets-message (:kinesis @system)
-                                                 {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/only-correct-handler-gets-message (:kinesis @system) opts))
 
 (deftest kinesis-multiple-handlers-get-same-message
-  (binding [*wait-per-try* 500]
-    (all-tests/multiple-handlers-get-same-message (:kinesis @system)
-                                                  {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts))
 
 (deftest kinesis-roundtrip-command->event
-  (binding [*wait-per-try* 500]
-    (all-tests/roundtrip-command->event (:kinesis @system)
-                                        {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/roundtrip-command->event (:kinesis @system) opts))
 
 (deftest kinesis-roundtrip-command->event-with-key
-  (binding [*wait-per-try* 500]
-    (all-tests/roundtrip-command->event-with-key (:kinesis @system)
-                                                 {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts))
 
 (deftest kinesis-processing-time-gt-session-timeout
-  (binding [*wait-per-try* 500]
-    (all-tests/processing-time-gt-session-timeout (:kinesis @system)
-                                                  {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts))
 
 (deftest kinesis-detaching-a-handler
-  (binding [*wait-per-try* 450]
-    (all-tests/detaching-a-handler (:kinesis @system)
-                                   {:initial-position-in-stream :TRIM_HORIZON})))
+  (all-tests/detaching-a-handler (:kinesis @system) opts))

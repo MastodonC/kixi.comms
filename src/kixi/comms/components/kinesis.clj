@@ -1,16 +1,14 @@
 (ns kixi.comms.components.kinesis
-  (:require [cheshire.core :refer [parse-string]]
-            [clojure.spec :as s]
+  (:require [amazonica.aws.kinesis :as kinesis]
             [clojure.core.async :as async]
-            [cognitect.transit :as transit]
             [com.stuartsierra.component :as component]
             [kixi.comms :as comms]
-            [kixi.comms.time :as t]
-            [kixi.comms.schema :as ks]
             [kixi.comms.messages :as msg]
-            [taoensso.timbre :as timbre :refer [error info debug]]
-            [amazonica.aws.kinesis :as kinesis]
-            [byte-streams :as bs]))
+            [taoensso.timbre :as timbre :refer [debug info]])
+  (:import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker))
+
+(def generic-event-worker-postfix "-event-generic-processor")
+(def generic-command-worker-postfix "-command-generic-processor")
 
 (defn sanitize-app-name
   [profile s]
@@ -19,10 +17,6 @@
        (-> s
            (clojure.string/replace #"\:" "")
            (clojure.string/replace #"\/" "_"))))
-
-(defn get-group-ids-seen
-  [{:keys [group-ids-seen]}]
-  @group-ids-seen)
 
 (defn list-streams
   [endpoint]
@@ -34,72 +28,97 @@
           [:stream-description :stream-status]))
 
 (defn create-streams!
-  [endpoint streams create-delay]
+  [endpoint streams]
   (let [{:keys [stream-names]} (list-streams endpoint)
-        create-delay (or create-delay 500)
-        stream-names-set (set stream-names)
+        missing-streams (remove (set stream-names) streams)
         shards 1]
-    (run! (fn [stream-name]
-            (when-not (contains? stream-names-set stream-name)
-              (info "Creating stream" stream-name "with" shards "shard(s)!")
-              (kinesis/create-stream {:endpoint endpoint} stream-name 1)
-              (Thread/sleep create-delay)
-              (deref
-               (future
-                 (loop [n 0
-                        status (get-stream-status endpoint stream-name)]
-                   (when (not (= "ACTIVE" status))
-                     (if (< n 50)
-                       (do
-                         (info "Waiting for" stream-name "status to be ACTIVE:" status)
-                         (Thread/sleep 500)
-                         (recur (inc n) (get-stream-status endpoint stream-name)))
-                       (throw (Exception. (str "Failed to create stream " stream-name)))))))))) streams)))
+    (doseq [stream-name missing-streams]
+      (info "Creating stream" stream-name "with" shards "shard(s)!")
+      (kinesis/create-stream {:endpoint endpoint} stream-name shards))
+    (doseq [stream-name missing-streams]
+      (loop [n 0
+             status (get-stream-status endpoint stream-name)]
+        (when (not (= "ACTIVE" status))
+          (if (< n 50)
+            (do
+              (info "Waiting for" stream-name "status to be ACTIVE:" status)
+              (Thread/sleep 500)
+              (recur (inc n) (get-stream-status endpoint stream-name)))
+            (throw (Exception. (str "Failed to create stream " stream-name)))))))))
+
+(defn stream-exists
+  [endpoint stream]
+  (try
+    (kinesis/describe-stream {:endpoint endpoint} stream)
+    true
+    (catch Exception e
+      false)))
 
 (defn delete-streams!
   [endpoint streams]
-  (run! (fn [stream-name]
-          (kinesis/delete-stream {:endpoint endpoint} stream-name)
-          (deref
-           (future
-             (loop []
-               (let [running-streams (-> endpoint
-                                         (list-streams)
-                                         :stream-names
-                                         (set))]
-                 (when (contains? running-streams stream-name)
-                   (recur)))))))
-        streams))
+  (doseq [stream-name streams]
+    (kinesis/delete-stream {:endpoint endpoint} stream-name))
+  (doseq [stream-name streams]
+    (loop []
+      (info "Waiting for" stream-name " to be deleted")
+      (when (stream-exists endpoint stream-name)
+        (Thread/sleep 100)
+        (recur)))))
+
+(def client-config-kws
+  #{:app
+    :stream
+    :worker-id
+    :endpoint
+    :dynamodb-endpoint
+    :initial-position-in-stream
+    :initial-position-in-stream-date
+    :failover-time-millis
+    :shard-sync-interval-millis
+    :max-records
+    :idle-time-between-reads-in-millis
+    :call-process-records-even-for-empty-record-list
+    :parent-shard-poll-interval-millis
+    :cleanup-leases-upon-shard-completion
+    :common-client-config
+    :kinesis-client-config
+    :dynamodb-client-config
+    :cloud-watch-client-config
+    :user-agent
+    :task-backoff-time-millis
+    :metrics-level
+    :metrics-buffer-time-millis
+    :metrics-max-queue-size
+    :validate-sequence-number-before-checkpointing
+    :region-name
+    :initial-lease-table-read-capacity
+    :initial-lease-table-write-capacity})
+
+(def default-client-config
+  {:checkpoint false
+   :initial-position-in-stream-date (java.util.Date.)})
 
 (defn create-and-run-worker!
-  [msg-handler process-msg?-fn
-   {:keys [stream-name app-name kinesis-endpoint dynamodb-endpoint
-           region checkpoint initial-position-in-stream]
-    :or {checkpoint false
-         initial-position-in-stream :LATEST}}]
-  (info "Creating worker" stream-name kinesis-endpoint initial-position-in-stream)
-  (let [[w id] (kinesis/worker :app app-name
-                               :stream stream-name
-                               :region-name region
-                               :endpoint kinesis-endpoint
-                               :dynamodb-endpoint dynamodb-endpoint
-                               :checkpoint checkpoint
-                               :initial-position-in-stream initial-position-in-stream
-                               :processor (fn [records]
-                                            (doseq [{:keys [data]} records]
-                                              (when (process-msg?-fn data)
-                                                (when comms/*verbose-logging*
-                                                  (info "Received msg from Kinesis stream" stream-name ":" data))
-                                                (msg-handler data)))
-                                            true))]
-    (info "Running worker" id w)
+  [msg-handler client-config]
+  (let [full-config (merge
+                     default-client-config
+                     client-config
+                     {:processor (fn [records]
+                                   (doseq [{:keys [data]} records]
+                                     (msg-handler data))
+                                   true)})
+        _ (info "Creating worker" full-config)
+        [^Worker w id] (kinesis/worker full-config)]
+    (debug "Running worker" id w)
     [(future (.run w)) w id]))
 
-(defn shutdown-worker!
-  [[f w id]]
-  (info "Shutting down worker" id w)
-  (.shutdown w)
-  (deref f))
+(defn shutdown-workers!
+  [workers]
+  (doseq [[f ^Worker w id] workers]
+    (info "Shutting down worker" id w)
+    (.shutdown w))
+  (doseq [[f ^Worker w id] workers]
+    (deref f)))
 
 (defn create-producer
   [endpoint stream-names origin in-chan]
@@ -118,9 +137,30 @@
                                 (str (java.util.UUID/randomUUID)))
             (recur)))))))
 
-(defrecord Kinesis [kinesis-endpoint dynamodb-endpoint region stream-names
-                    origin checkpoint create-delay profile
-                    producer-in-chan]
+(defn attach-generic-processing-switch
+  [config id->handle-msg-and-process-msg-atom]
+  (create-and-run-worker!
+   (fn [msg]
+     (doseq [{:keys [process-msg? handle-msg app-name]} (vals @id->handle-msg-and-process-msg-atom)]
+                                        ;should process in parrel
+       (when (process-msg? msg)
+         (when comms/*verbose-logging*
+           (debug "Received msg from Kinesis stream" app-name ":" msg))
+         (handle-msg msg))))
+   config))
+
+(defn event-worker-app-name
+  [app profile]
+  (str app "-" profile generic-event-worker-postfix))
+
+(defn command-worker-app-name
+  [app profile]
+  (str app "-" profile generic-command-worker-postfix))
+
+(defrecord Kinesis [app-name endpoint dynamodb-endpoint region-name streams
+                    origin checkpoint profile kinesis-options
+                    producer-in-chan id->handle-msg-and-process-msg-atom
+                    id->command-handle-msg-and-process-msg-atom]
   comms/Communications
   (send-event! [comms event version payload]
     (comms/send-event! comms event version payload {}))
@@ -135,83 +175,48 @@
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
-
   (attach-event-with-key-handler!
-    [this group-id map-key handler]
-    (comms/attach-event-with-key-handler! this group-id map-key handler {}))
-  (attach-event-with-key-handler!
-    [{:keys [stream-names workers group-ids-seen] :as this}
-     group-id map-key handler opts]
+      [{:keys [stream-names workers] :as this}
+       group-id map-key handler]
     (info "Attaching event-with-key handler for" map-key)
     (let [sanitized-app-name (sanitize-app-name profile group-id)
-          [_ _ id :as worker]
-          (create-and-run-worker!
-           (msg/msg-handler-fn handler
-                               (partial msg/handle-result this :event))
-           (msg/process-msg? :event #(contains? % map-key))
-           (merge {:stream-name (:event stream-names)
-                   :app-name sanitized-app-name
-                   :dynamodb-endpoint dynamodb-endpoint
-                   :kinesis-endpoint kinesis-endpoint
-                   :checkpoint checkpoint
-                   :region region}
-                  opts))]
-      (swap! workers assoc id worker)
-      (swap! group-ids-seen conj sanitized-app-name)
-      id)
-    )
+          id (java.util.UUID/randomUUID)]
+      (swap! id->handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :event #(contains? % map-key))
+                 :handle-msg  (msg/msg-handler-fn handler
+                                                  (partial msg/handle-result this :event))})
+      id))
   (attach-event-handler!
-    [this group-id event version handler]
-    (comms/attach-event-handler! this group-id event version handler {}))
-  (attach-event-handler!
-    [{:keys [stream-names workers group-ids-seen] :as this}
-     group-id event version handler opts]
+      [{:keys [stream-names workers] :as this}
+       group-id event version handler]
     (info "Attaching event handler for" event version)
     (let [sanitized-app-name (sanitize-app-name profile group-id)
-          [_ _ id :as worker]
-          (create-and-run-worker!
-           (msg/msg-handler-fn handler
-                               (partial msg/handle-result this :event))
-           (msg/process-msg? :event event version)
-           (merge {:stream-name (:event stream-names)
-                   :app-name sanitized-app-name
-                   :dynamodb-endpoint dynamodb-endpoint
-                   :kinesis-endpoint kinesis-endpoint
-                   :checkpoint checkpoint
-                   :region region}
-                  opts))]
-      (swap! workers assoc id worker)
-      (swap! group-ids-seen conj sanitized-app-name)
-      id)
-    )
+          id (java.util.UUID/randomUUID)]
+      (swap! id->handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :event event version)
+                 :handle-msg  (msg/msg-handler-fn handler
+                                                  (partial msg/handle-result this :event))})
+      id))
   (attach-command-handler!
-    [this group-id command version handler]
-    (comms/attach-command-handler! this group-id command version handler {}))
-  (attach-command-handler!
-    [{:keys [stream-names workers group-ids-seen] :as this}
-     group-id command version handler opts]
+      [{:keys [stream-names workers] :as this}
+       group-id command version handler]
     (info "Attaching command handler for" command version)
+
     (let [sanitized-app-name (sanitize-app-name profile group-id)
-          [_ _ id :as worker]
-          (create-and-run-worker!
-           (msg/msg-handler-fn handler
-                               (partial msg/handle-result this :command))
-           (msg/process-msg? :command command version)
-           (merge {:stream-name (:command stream-names)
-                   :app-name sanitized-app-name
-                   :dynamodb-endpoint dynamodb-endpoint
-                   :kinesis-endpoint kinesis-endpoint
-                   :checkpoint checkpoint
-                   :region region}
-                  opts))]
-      (swap! workers assoc id worker)
-      (swap! group-ids-seen conj sanitized-app-name)
+          id (java.util.UUID/randomUUID)]
+      (swap! id->command-handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :command command version)
+                 :handle-msg  (msg/msg-handler-fn handler
+                                                  (partial msg/handle-result this :command))})
       id))
 
-  (detach-handler! [{:keys [workers] :as this} worker-id]
-    (when-let [worker (get @workers worker-id)]
-      (shutdown-worker! worker)
-      (swap! workers dissoc worker-id)))
+  (detach-handler! [{:keys [id->handle-msg-and-process-msg-atom
+                            id->command-handle-msg-and-process-msg-atom] :as this} worker-id]
+    (swap! id->handle-msg-and-process-msg-atom dissoc worker-id)
+    (swap! id->command-handle-msg-and-process-msg-atom dissoc worker-id))
   component/Lifecycle
   (start [component]
     (timbre/merge-config! {:ns-blacklist ["org.apache.http.*"
@@ -226,31 +231,47 @@
                                           "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ShardConsumer"
                                           "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ProcessTask"]})
     (if-not (:producer-in-ch component)
-      (let [stream-names (or stream-names {:command "command" :event "event"})
+      (let [streams (or streams {:command "command" :event "event"})
             origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
                                    (catch Throwable _ "<unknown>")))
-            producer-chan      (async/chan)]
+            producer-chan      (async/chan)
+            id->handle-msg-and-process-msg-atom (atom {})
+            id->command-handle-msg-and-process-msg-atom (atom {})]
         (info "Starting Kinesis Producer/Consumer")
-        (create-streams! kinesis-endpoint (vals stream-names) create-delay)
-        (create-producer kinesis-endpoint stream-names origin producer-chan)
+        (create-streams! endpoint (vals streams))
+        (create-producer endpoint streams origin producer-chan)
         (assoc component
-               :group-ids-seen (atom [])
-               :workers (atom {})
-               :stream-names stream-names
+               :id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
+               :id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
+               :streams streams
                :origin origin
-               :producer-in-ch producer-chan))
+               :producer-in-ch producer-chan
+               :generic-event-worker (attach-generic-processing-switch
+                                      (-> (select-keys component client-config-kws)
+                                          (assoc :stream
+                                                 (:event streams))
+                                          (update :app
+                                                  (fn [n] (event-worker-app-name n profile))))
+                                      id->handle-msg-and-process-msg-atom)
+               :generic-command-worker (attach-generic-processing-switch
+                                        (-> (select-keys component client-config-kws)
+                                            (assoc :stream
+                                                   (:command streams))
+                                            (update :app
+                                                    (fn [n] (command-worker-app-name n profile))))
+                                        id->command-handle-msg-and-process-msg-atom)))
       component))
   (stop [component]
-    (let [{:keys [producer-in-ch workers]} component]
+    (let [{:keys [producer-in-ch]} component]
       (if (:producer-in-ch component)
         (do
           (info "Stopping Kinesis Producer/Consumer")
           (async/close! producer-in-ch)
-          (run! shutdown-worker! (vals @workers))
+          (shutdown-workers! [(:generic-event-worker component)
+                              (:generic-command-worker component)])
           (dissoc component
-                  :group-ids-seen
                   :workers
-                  :stream-names
+                  :streams
                   :origin
                   :producer-in-ch))
         component))))
