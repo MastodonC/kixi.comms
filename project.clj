@@ -11,7 +11,8 @@
                  [com.stuartsierra/component "0.3.1"]
                  [com.fzakaria/slf4j-timbre "0.3.2"]
                  [com.taoensso/timbre "4.7.4" :exclusions [com.taoensso/encore]]
-                 [com.fasterxml.jackson.core/jackson-core "2.8.4"]
+                 [com.fasterxml.jackson.core/jackson-core "2.8.7"]
+                 [com.fasterxml.jackson.dataformat/jackson-dataformat-cbor "2.8.7"]
                  [cheshire "5.6.3" :exclusions [com.fasterxml.jackson.core/jackson-core]]
                  [clj-time "0.12.0"]
                  [org.slf4j/log4j-over-slf4j ~slf4j-version]
@@ -22,7 +23,9 @@
                  [mastondonc/franzy "0.0.3" :exclusions [org.slf4j/slf4j-log4j12]]
                  [zookeeper-clj "0.9.4" :exclusions [org.slf4j/slf4j-log4j12 log4j]]
                  ;; Kinesis
-                 [amazonica "0.3.90" :exclusions [com.taoensso/encore]]
+                 [amazonica "0.3.92" :exclusions [com.taoensso/encore
+                                                  com.fasterxml.jackson.core/jackson-core
+                                                  com.fasterxml.jackson.dataformat/jackson-dataformat-cbor]]
                  [byte-streams "0.2.2"]]
   :target-path "target/%s"
   :profiles {:uberjar {:aot :all}
