@@ -145,7 +145,7 @@
                                         ;should process in parrel
        (when (process-msg? msg)
          (when comms/*verbose-logging*
-           (debug "Received msg from Kinesis stream" app-name ":" msg))
+           (info "Received msg from Kinesis stream" app-name ":" msg))
          (handle-msg msg))))
    config))
 
