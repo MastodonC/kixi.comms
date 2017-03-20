@@ -6,7 +6,8 @@
             [kixi.comms.time :as t]
             [kixi.comms :as comms]
             [kixi.comms.schema :as ks])
-  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]))
+  (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
+           [java.nio ByteBuffer]))
 
 (defn process-msg?
   ([msg-type pred]
@@ -95,3 +96,16 @@
     (if command-id
       (assoc r :kixi.comms.command/id command-id)
       r)))
+
+(defn edn-to-bytebuffer
+  [edn]
+  (let [data (str edn)
+        data-in-bytes (byte-array (map (comp byte int) data))
+        buf (ByteBuffer/wrap (.getBytes data))]
+    buf)
+  )
+
+(defn bytebuffer-to-edn [byte-buffer]
+  (let [b (byte-array (.remaining byte-buffer))]
+    (.get byte-buffer b)
+    (clojure.edn/read-string (String. b))))

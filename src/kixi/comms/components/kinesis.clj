@@ -96,7 +96,8 @@
 
 (def default-client-config
   {:checkpoint false
-   :initial-position-in-stream-date (java.util.Date.)})
+   :initial-position-in-stream-date (java.util.Date.)
+   :deserializer msg/bytebuffer-to-edn})
 
 (defn create-and-run-worker!
   [msg-handler client-config]
@@ -133,7 +134,7 @@
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
             (kinesis/put-record {:endpoint endpoint}
                                 stream-name
-                                formatted
+                                (msg/edn-to-bytebuffer formatted)
                                 (str (java.util.UUID/randomUUID)))
             (recur)))))))
 
