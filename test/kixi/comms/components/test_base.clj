@@ -1,9 +1,10 @@
 (ns kixi.comms.components.test-base
   (:require [com.stuartsierra.component :as component]
-            [taoensso.timbre :as timbre :refer [error info]]))
+            [taoensso.timbre :as timbre :refer [error info]]
+            [environ.core :refer [env]]))
 
-(def ^:dynamic *wait-tries* 160)
-(def ^:dynamic *wait-per-try* 100)
+(def ^:dynamic *wait-tries* (Integer/parseInt (env :wait-tries "160")))
+(def ^:dynamic *wait-per-try* (Integer/parseInt (env :wait-per-try "100")))
 
 (defn wait
   [ms]
