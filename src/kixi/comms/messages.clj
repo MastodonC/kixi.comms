@@ -100,7 +100,6 @@
 (defn edn-to-bytebuffer
   [edn]
   (let [data (str edn)
-        data-in-bytes (byte-array (map (comp byte int) data))
         buf (ByteBuffer/wrap (.getBytes data))]
     buf)
   )
