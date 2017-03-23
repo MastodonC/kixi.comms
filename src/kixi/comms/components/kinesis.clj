@@ -4,7 +4,7 @@
             [com.stuartsierra.component :as component]
             [kixi.comms :as comms]
             [kixi.comms.messages :as msg]
-            [taoensso.timbre :as timbre :refer [debug info]])
+            [taoensso.timbre :as timbre :refer [debug info error]])
   (:import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker))
 
 (def generic-event-worker-postfix "-event-generic-processor")
@@ -132,10 +132,13 @@
                 formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))]
             (when comms/*verbose-logging*
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
-            (kinesis/put-record {:endpoint endpoint}
-                                stream-name
-                                (msg/edn-to-bytebuffer formatted)
-                                (str (java.util.UUID/randomUUID)))
+            (try
+              (kinesis/put-record {:endpoint endpoint}
+                                  stream-name
+                                  (msg/edn-to-bytebuffer formatted)
+                                  (str (java.util.UUID/randomUUID)))
+              (catch Throwable e
+                (error e "Producer threw an exception!")))
             (recur)))))))
 
 (defn attach-generic-processing-switch
@@ -147,7 +150,10 @@
        (when (process-msg? msg)
          (when comms/*verbose-logging*
            (info "Received msg from Kinesis stream" app-name ":" msg))
-         (handle-msg msg))))
+         (try
+           (handle-msg msg)
+           (catch Throwable e
+             (error e "Handler threw an exception:" app-name msg))))))
    config))
 
 (defn event-worker-app-name
