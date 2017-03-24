@@ -73,12 +73,8 @@
                              :app app-name
                              :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
-                             :region-name test-region
                              :streams test-stream-names
-                             :failover-time-millis 200
-                             :metric-level :NONE
-                             :idle-time-between-reads-in-millis 200
-                             :max-records 1}))))))
+                             :metric-level :NONE}))))))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
