@@ -121,21 +121,20 @@
     (deref f)))
 
 (defn create-producer
-  [endpoint stream-names origin in-chan transmit-edn?]
+  [endpoint stream-names origin in-chan]
   (async/go
     (loop []
       (let [msg (async/<! in-chan)]
         (if msg
           (let [[stream-name-key _ _ _ _ opts] msg
                 stream-name (get stream-names stream-name-key)
-                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
-                serializer (if transmit-edn? msg/edn-to-bytebuffer identity)]
+                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))]
             (when comms/*verbose-logging*
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
             (try
               (kinesis/put-record {:endpoint endpoint}
                                   stream-name
-                                  (serializer formatted)
+                                  formatted
                                   (str (java.util.UUID/randomUUID)))
               (catch Throwable e
                 (error e "Producer threw an exception!")))
@@ -167,7 +166,7 @@
   (str app "-" profile generic-command-worker-postfix))
 
 (defrecord Kinesis [app-name endpoint dynamodb-endpoint region-name streams
-                    origin checkpoint profile kinesis-options transmit-edn?
+                    origin checkpoint profile kinesis-options
                     producer-in-chan id->handle-msg-and-process-msg-atom
                     id->command-handle-msg-and-process-msg-atom]
   comms/Communications
@@ -248,7 +247,7 @@
             id->command-handle-msg-and-process-msg-atom (atom {})]
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! endpoint (vals streams))
-        (create-producer endpoint streams origin producer-chan transmit-edn?)
+        (create-producer endpoint streams origin producer-chan)
         (assoc component
                :id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
                :id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
@@ -257,17 +256,13 @@
                :producer-in-ch producer-chan
                :generic-event-worker (attach-generic-processing-switch
                                       (-> (select-keys component client-config-kws)
-                                          (assoc :stream (:event streams)
-                                                 :deserializer (when transmit-edn?
-                                                                 msg/bytebuffer-to-edn))
+                                          (assoc :stream (:event streams))
                                           (update :app
                                                   (fn [n] (event-worker-app-name n profile))))
                                       id->handle-msg-and-process-msg-atom)
                :generic-command-worker (attach-generic-processing-switch
                                         (-> (select-keys component client-config-kws)
-                                            (assoc :stream (:command streams)
-                                                   :deserializer (when transmit-edn?
-                                                                   msg/bytebuffer-to-edn))
+                                            (assoc :stream (:command streams))
                                             (update :app
                                                     (fn [n] (command-worker-app-name n profile))))
                                         id->command-handle-msg-and-process-msg-atom)))
