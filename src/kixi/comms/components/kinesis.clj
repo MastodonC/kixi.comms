@@ -150,11 +150,11 @@
                                         ;should process in parrel
        (if (process-msg? msg)
          (try
-           (debug "- Forwarding last message from " (:stream config)" to handler" app-name)
+           (debug "# Forwarding last message from" (:stream config)" to handler" app-name)
            (handle-msg msg)
            (catch Throwable e
              (error e "Handler threw an exception:" app-name msg)))
-         (debug "- NOT forwarding last message from " (:stream config)" to handler" app-name))))
+         (debug "# NOT forwarding last message from" (:stream config)" to handler" app-name))))
    config))
 
 (defn event-worker-app-name
