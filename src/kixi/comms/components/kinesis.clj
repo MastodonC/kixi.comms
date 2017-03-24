@@ -96,8 +96,7 @@
 
 (def default-client-config
   {:checkpoint false
-   :initial-position-in-stream-date (java.util.Date.)
-   :deserializer msg/bytebuffer-to-edn})
+   :initial-position-in-stream-date (java.util.Date.)})
 
 (defn create-and-run-worker!
   [msg-handler client-config]
@@ -122,20 +121,21 @@
     (deref f)))
 
 (defn create-producer
-  [endpoint stream-names origin in-chan]
+  [endpoint stream-names origin in-chan transmit-edn?]
   (async/go
     (loop []
       (let [msg (async/<! in-chan)]
         (if msg
           (let [[stream-name-key _ _ _ _ opts] msg
                 stream-name (get stream-names stream-name-key)
-                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))]
+                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                serializer (if transmit-edn? msg/edn-to-bytebuffer identity)]
             (when comms/*verbose-logging*
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
             (try
               (kinesis/put-record {:endpoint endpoint}
                                   stream-name
-                                  (msg/edn-to-bytebuffer formatted)
+                                  (serializer formatted)
                                   (str (java.util.UUID/randomUUID)))
               (catch Throwable e
                 (error e "Producer threw an exception!")))
@@ -145,15 +145,17 @@
   [config id->handle-msg-and-process-msg-atom]
   (create-and-run-worker!
    (fn [msg]
+     (when comms/*verbose-logging*
+       (info "Received msg from Kinesis" (:stream config) "stream:" msg))
      (doseq [{:keys [process-msg? handle-msg app-name]} (vals @id->handle-msg-and-process-msg-atom)]
                                         ;should process in parrel
-       (when (process-msg? msg)
-         (when comms/*verbose-logging*
-           (info "Received msg from Kinesis stream" app-name ":" msg))
+       (if (process-msg? msg)
          (try
+           (debug "- Forwarding last message from " (:stream config)" to handler" app-name)
            (handle-msg msg)
            (catch Throwable e
-             (error e "Handler threw an exception:" app-name msg))))))
+             (error e "Handler threw an exception:" app-name msg)))
+         (debug "- NOT forwarding last message from " (:stream config)" to handler" app-name))))
    config))
 
 (defn event-worker-app-name
@@ -165,7 +167,7 @@
   (str app "-" profile generic-command-worker-postfix))
 
 (defrecord Kinesis [app-name endpoint dynamodb-endpoint region-name streams
-                    origin checkpoint profile kinesis-options
+                    origin checkpoint profile kinesis-options transmit-edn?
                     producer-in-chan id->handle-msg-and-process-msg-atom
                     id->command-handle-msg-and-process-msg-atom]
   comms/Communications
@@ -183,8 +185,8 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
   (attach-event-with-key-handler!
-      [{:keys [stream-names workers] :as this}
-       group-id map-key handler]
+    [{:keys [stream-names workers] :as this}
+     group-id map-key handler]
     (info "Attaching event-with-key handler for" map-key)
     (let [sanitized-app-name (sanitize-app-name profile group-id)
           id (java.util.UUID/randomUUID)]
@@ -195,8 +197,8 @@
                                                   (partial msg/handle-result this :event))})
       id))
   (attach-event-handler!
-      [{:keys [stream-names workers] :as this}
-       group-id event version handler]
+    [{:keys [stream-names workers] :as this}
+     group-id event version handler]
     (info "Attaching event handler for" event version)
     (let [sanitized-app-name (sanitize-app-name profile group-id)
           id (java.util.UUID/randomUUID)]
@@ -207,8 +209,8 @@
                                                   (partial msg/handle-result this :event))})
       id))
   (attach-command-handler!
-      [{:keys [stream-names workers] :as this}
-       group-id command version handler]
+    [{:keys [stream-names workers] :as this}
+     group-id command version handler]
     (info "Attaching command handler for" command version)
 
     (let [sanitized-app-name (sanitize-app-name profile group-id)
@@ -246,7 +248,7 @@
             id->command-handle-msg-and-process-msg-atom (atom {})]
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! endpoint (vals streams))
-        (create-producer endpoint streams origin producer-chan)
+        (create-producer endpoint streams origin producer-chan transmit-edn?)
         (assoc component
                :id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
                :id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
@@ -255,15 +257,17 @@
                :producer-in-ch producer-chan
                :generic-event-worker (attach-generic-processing-switch
                                       (-> (select-keys component client-config-kws)
-                                          (assoc :stream
-                                                 (:event streams))
+                                          (assoc :stream (:event streams)
+                                                 :deserializer (when transmit-edn?
+                                                                 msg/bytebuffer-to-edn))
                                           (update :app
                                                   (fn [n] (event-worker-app-name n profile))))
                                       id->handle-msg-and-process-msg-atom)
                :generic-command-worker (attach-generic-processing-switch
                                         (-> (select-keys component client-config-kws)
-                                            (assoc :stream
-                                                   (:command streams))
+                                            (assoc :stream (:command streams)
+                                                   :deserializer (when transmit-edn?
+                                                                   msg/bytebuffer-to-edn))
                                             (update :app
                                                     (fn [n] (command-worker-app-name n profile))))
                                         id->command-handle-msg-and-process-msg-atom)))
