@@ -70,3 +70,19 @@
    :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
                                  (:kixi.comms.event/version cmd))
    :kixi.comms.event/payload cmd})
+
+(defn swap-conj-as-multi-events!
+  [cnt a cmd]
+  (swap! a conj cmd)
+  (do
+    (mapv #(hash-map :kixi.comms.event/key (-> (or (:kixi.comms.command/key cmd)
+                                                   (:kixi.comms.event/key cmd))
+                                               (str)
+                                               (subs 1)
+                                               (str "-event")
+                                               (keyword))
+                     :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
+                                                   (:kixi.comms.event/version cmd))
+                     :kixi.comms.event/payload (assoc cmd
+                                                      :create-order %))
+          (range cnt))))
