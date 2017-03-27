@@ -73,7 +73,6 @@
                              :app app-name
                              :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
-                             :region-name test-region
                              :streams test-stream-names
                              :failover-time-millis 200
                              :metric-level :NONE
