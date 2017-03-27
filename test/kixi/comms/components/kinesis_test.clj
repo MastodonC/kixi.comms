@@ -82,15 +82,11 @@
 
 (def opts {})
 
-(def long-wait 200)
-
 (deftest kinesis-command-roundtrip-test
-  (binding [*wait-per-try* long-wait]
-    (all-tests/command-roundtrip-test (:kinesis @system) opts)))
+  (all-tests/command-roundtrip-test (:kinesis @system) opts))
 
 (deftest kinesis-event-roundtrip-test
-  (binding [*wait-per-try* long-wait]
-    (all-tests/event-roundtrip-test (:kinesis @system) opts)))
+  (all-tests/event-roundtrip-test (:kinesis @system) opts))
 
 (deftest kinesis-only-correct-handler-gets-message
   (all-tests/only-correct-handler-gets-message (:kinesis @system) opts))
