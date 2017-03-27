@@ -17,7 +17,7 @@
 (def test-dynamodb (env :dynamodb-endpoint "http://localhost:8000"))
 (def test-region "eu-central-1")
 
-(def profile (env :profile "test"))
+(def profile (env :profile "local"))
 (def test-stream-names {:command (str "kixi-comms-test-" profile "-command")
                         :event (str "kixi-comms-test-" profile "-event")})
 (def app-name "kixi-comms")
@@ -82,7 +82,7 @@
 
 (def opts {})
 
-(def long-wait 500)
+(def long-wait 100)
 
 (deftest kinesis-command-roundtrip-test
   (binding [*wait-per-try* long-wait]

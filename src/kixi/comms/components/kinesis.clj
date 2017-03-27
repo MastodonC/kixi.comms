@@ -31,7 +31,7 @@
   [endpoint streams]
   (let [{:keys [stream-names]} (list-streams endpoint)
         missing-streams (remove (set stream-names) streams)
-        shards 3]
+        shards 2]
     (doseq [stream-name missing-streams]
       (info "Creating stream" stream-name "with" shards "shard(s)!")
       (kinesis/create-stream {:endpoint endpoint} stream-name shards))
