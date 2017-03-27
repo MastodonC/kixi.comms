@@ -13,13 +13,14 @@
             [amazonica.aws.dynamodbv2 :as ddb]
             [amazonica.aws.kinesis :as kinesis]))
 
-(def test-kinesis (or (env :kinesis-endpoint) "kinesis.eu-central-1.amazonaws.com"))
-(def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
+(def test-kinesis (env :kinesis-endpoint "kinesis.eu-central-1.amazonaws.com"))
+(def test-dynamodb (env :dynamodb-endpoint "http://localhost:8000"))
 (def test-region "eu-central-1")
-(def test-stream-names {:command "kixi-comms-test-command"
-                        :event   "kixi-comms-test-event"})
+
+(def profile (env :profile "local"))
+(def test-stream-names {:command (str "kixi-comms-test-" profile "-command")
+                        :event (str "kixi-comms-test-" profile "-event")})
 (def app-name "kixi-comms")
-(def profile "test")
 
 (def dynamodb-table-names [(event-worker-app-name app-name profile)
                            (command-worker-app-name app-name profile)])
@@ -73,35 +74,48 @@
                              :app app-name
                              :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
-                             :streams test-stream-names
+                             :streams test-stream-names                             
+                             :idle-time-between-reads-in-millis 200
                              :metric-level :NONE}))))))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
 (def opts {})
 
+(def long-wait 100)
+
 (deftest kinesis-command-roundtrip-test
-  (binding [*wait-per-try* 500]
+  (binding [*wait-per-try* long-wait]
     (all-tests/command-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-event-roundtrip-test
-  (binding [*wait-per-try* 500]
+  (binding [*wait-per-try* long-wait]
     (all-tests/event-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-only-correct-handler-gets-message
-  (all-tests/only-correct-handler-gets-message (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/only-correct-handler-gets-message (:kinesis @system) opts)))
 
 (deftest kinesis-multiple-handlers-get-same-message
-  (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts)))
 
 (deftest kinesis-roundtrip-command->event
-  (all-tests/roundtrip-command->event (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/roundtrip-command->event (:kinesis @system) opts)))
+
+(deftest kinesis-roundtrip-command->multi-event
+  (binding [*wait-per-try* long-wait]
+    (all-tests/roundtrip-command->multi-event (:kinesis @system) opts)))
 
 (deftest kinesis-roundtrip-command->event-with-key
-  (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts)))
 
 (deftest kinesis-processing-time-gt-session-timeout
-  (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts)))
 
 (deftest kinesis-detaching-a-handler
-  (all-tests/detaching-a-handler (:kinesis @system) opts))
+  (binding [*wait-per-try* long-wait]
+    (all-tests/detaching-a-handler (:kinesis @system) opts)))

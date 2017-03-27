@@ -31,7 +31,7 @@
   [endpoint streams]
   (let [{:keys [stream-names]} (list-streams endpoint)
         missing-streams (remove (set stream-names) streams)
-        shards 1]
+        shards 2]
     (doseq [stream-name missing-streams]
       (info "Creating stream" stream-name "with" shards "shard(s)!")
       (kinesis/create-stream {:endpoint endpoint} stream-name shards))
@@ -125,19 +125,19 @@
   (async/go
     (loop []
       (let [msg (async/<! in-chan)]
-        (if msg
+        (when msg
           (let [[stream-name-key _ _ _ _ opts] msg
                 stream-name (get stream-names stream-name-key)
-                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))]
+                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                seq-num (:kixi.comms.event/seq-num opts)
+                cmd-id (:kixi.comms.command/id opts)]
             (when comms/*verbose-logging*
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
-            (try
-              (kinesis/put-record {:endpoint endpoint}
-                                  stream-name
-                                  formatted
-                                  (str (java.util.UUID/randomUUID)))
-              (catch Throwable e
-                (error e "Producer threw an exception!")))
+            (kinesis/put-record {:endpoint endpoint}
+                                stream-name
+                                (msg/edn-to-bytebuffer formatted)
+                                (or cmd-id (str (java.util.UUID/randomUUID)))
+                                seq-num)
             (recur)))))))
 
 (defn attach-generic-processing-switch

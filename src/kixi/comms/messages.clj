@@ -37,11 +37,13 @@
                               (s/explain-data ::ks/event-result result))))
       (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
                                        kixi.comms.event/version
-                                       kixi.comms.event/payload] :as f}]
+                                       kixi.comms.event/payload
+                                       kixi.comms.event/seq-num] :as f}]
                 (comms/send-event! comms-component key version payload
-                                   {:command-id (:kixi.comms.command/id original)}))]
+                                   {:command-id (:kixi.comms.command/id original)
+                                    :seq-num seq-num}))]
         (if (sequential? result)
-          (run! send-event-fn! result)
+          (run! send-event-fn! (map-indexed #(assoc %2 :seq-num %1) result))
           (send-event-fn! result))))))
 
 (defn msg-handler-fn
