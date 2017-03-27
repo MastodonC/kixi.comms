@@ -93,29 +93,22 @@
     (all-tests/event-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-only-correct-handler-gets-message
-  (binding [*wait-per-try* long-wait]
-    (all-tests/only-correct-handler-gets-message (:kinesis @system) opts)))
+  (all-tests/only-correct-handler-gets-message (:kinesis @system) opts))
 
 (deftest kinesis-multiple-handlers-get-same-message
-  (binding [*wait-per-try* long-wait]
-    (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts)))
+  (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts))
 
 (deftest kinesis-roundtrip-command->event
-  (binding [*wait-per-try* long-wait]
-    (all-tests/roundtrip-command->event (:kinesis @system) opts)))
+  (all-tests/roundtrip-command->event (:kinesis @system) opts))
 
 (deftest kinesis-roundtrip-command->multi-event
-  (binding [*wait-per-try* long-wait]
-    (all-tests/roundtrip-command->multi-event (:kinesis @system) opts)))
+  (all-tests/roundtrip-command->multi-event (:kinesis @system) opts))
 
 (deftest kinesis-roundtrip-command->event-with-key
-  (binding [*wait-per-try* long-wait]
-    (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts)))
+  (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts))
 
 (deftest kinesis-processing-time-gt-session-timeout
-  (binding [*wait-per-try* long-wait]
-    (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts)))
+  (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts))
 
 (deftest kinesis-detaching-a-handler
-  (binding [*wait-per-try* long-wait]
-    (all-tests/detaching-a-handler (:kinesis @system) opts)))
+  (all-tests/detaching-a-handler (:kinesis @system) opts))
