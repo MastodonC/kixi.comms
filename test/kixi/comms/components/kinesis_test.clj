@@ -74,9 +74,7 @@
                              :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
                              :streams test-stream-names
-                             :failover-time-millis 200
-                             :metric-level :NONE
-                             :idle-time-between-reads-in-millis 200}))))))
+                             :metric-level :NONE}))))))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
