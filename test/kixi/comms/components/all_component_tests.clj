@@ -87,6 +87,31 @@
       (is (= :test/test-a (get-in event [:kixi.comms.event/payload :kixi.comms.command/key])))
       (is (= (:kixi.comms.command/id command) (:kixi.comms.command/id event))))))
 
+(defn roundtrip-command->multi-event
+  [component opts]
+  (let [c-result (atom [])
+        e-result (atom [])
+        id (str (java.util.UUID/randomUUID))
+        events-finder-fn (fn [id events]
+                          (filter (fn [e] (= id (get-in e [:kixi.comms.event/payload :kixi.comms.command/payload :id]))) events))]
+    (comms/attach-command-handler! component :component-n :test/test-b "1.0.0" (partial swap-conj-as-multi-events! c-result))
+    (comms/attach-event-handler! component :component-o :test/test-b-event "1.0.0" (fn [x] (swap! e-result conj x) nil))
+    (comms/send-command! component :test/test-b "1.0.0" user {:test "roundtrip-command->multi-events" :id id})
+    (is (wait-for-atom
+         c-result *wait-tries* *wait-per-try*
+         (contains-command-id? id)))
+    (is (wait-for-atom
+         e-result *wait-tries* *wait-per-try*
+         #(= 2 (count (events-finder-fn id %)))))
+    (let [events (events-finder-fn id @e-result)
+          command ((contains-command-id? id) @c-result)]
+      (is (= :test/test-b (get-in (first events) [:kixi.comms.event/payload :kixi.comms.command/key])))
+      (is (= :test/test-b (get-in (second events) [:kixi.comms.event/payload :kixi.comms.command/key])))
+      (is (= (:kixi.comms.command/id command) (:kixi.comms.command/id (first events))))
+      (is (= (:kixi.comms.command/id command) (:kixi.comms.command/id (second events))))
+      (is (= 1 (get-in (first events) [:kixi.comms.event/payload :create-order])))
+      (is (= 2 (get-in (second events) [:kixi.comms.event/payload :create-order]))))))
+
 (defn roundtrip-command->event-with-key
   [component opts]
   (let [c-result (atom [])

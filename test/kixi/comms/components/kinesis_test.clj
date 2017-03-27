@@ -77,8 +77,7 @@
                              :streams test-stream-names
                              :failover-time-millis 200
                              :metric-level :NONE
-                             :idle-time-between-reads-in-millis 200
-                             :max-records 1}))))))
+                             :idle-time-between-reads-in-millis 200}))))))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
@@ -93,19 +92,29 @@
     (all-tests/event-roundtrip-test (:kinesis @system) opts)))
 
 (deftest kinesis-only-correct-handler-gets-message
-  (all-tests/only-correct-handler-gets-message (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/only-correct-handler-gets-message (:kinesis @system) opts)))
 
 (deftest kinesis-multiple-handlers-get-same-message
-  (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/multiple-handlers-get-same-message (:kinesis @system) opts)))
 
 (deftest kinesis-roundtrip-command->event
-  (all-tests/roundtrip-command->event (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/roundtrip-command->event (:kinesis @system) opts)))
+
+(deftest kinesis-roundtrip-command->multi-event
+  (binding [*wait-per-try* 500]
+    (all-tests/roundtrip-command->multi-event (:kinesis @system) opts)))
 
 (deftest kinesis-roundtrip-command->event-with-key
-  (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/roundtrip-command->event-with-key (:kinesis @system) opts)))
 
 (deftest kinesis-processing-time-gt-session-timeout
-  (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/processing-time-gt-session-timeout (:kinesis @system) opts)))
 
 (deftest kinesis-detaching-a-handler
-  (all-tests/detaching-a-handler (:kinesis @system) opts))
+  (binding [*wait-per-try* 500]
+    (all-tests/detaching-a-handler (:kinesis @system) opts)))
