@@ -13,13 +13,14 @@
             [amazonica.aws.dynamodbv2 :as ddb]
             [amazonica.aws.kinesis :as kinesis]))
 
-(def test-kinesis (or (env :kinesis-endpoint) "kinesis.eu-central-1.amazonaws.com"))
-(def test-dynamodb (or (env :dynamodb-endpoint) "http://localhost:8000"))
+(def test-kinesis (env :kinesis-endpoint "kinesis.eu-central-1.amazonaws.com"))
+(def test-dynamodb (env :dynamodb-endpoint "http://localhost:8000"))
 (def test-region "eu-central-1")
-(def test-stream-names {:command "kixi-comms-test-command"
-                        :event   "kixi-comms-test-event"})
+
+(def profile (env :profile "test"))
+(def test-stream-names {:command (str "kixi-comms-test-" profile "-command")
+                        :event (str "kixi-comms-test-" profile "-event")})
 (def app-name "kixi-comms")
-(def profile "test")
 
 (def dynamodb-table-names [(event-worker-app-name app-name profile)
                            (command-worker-app-name app-name profile)])
