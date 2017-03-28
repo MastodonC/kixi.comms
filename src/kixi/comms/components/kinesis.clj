@@ -249,7 +249,7 @@
         (create-streams! endpoint (vals streams))
         (create-producer endpoint streams origin producer-chan)
         (merge
-         (assoc component              
+         (assoc component
                 :streams streams
                 :origin origin
                 :producer-in-ch producer-chan)
@@ -262,7 +262,7 @@
                                                (fn [n] (event-worker-app-name n profile))))
                                    id->handle-msg-and-process-msg-atom)})
          (when (:command streams)
-           {:id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom            
+           {:id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
             :generic-command-worker (attach-generic-processing-switch
                                      (-> (select-keys component client-config-kws)
                                          (assoc :stream (:command streams))
@@ -276,8 +276,9 @@
         (do
           (info "Stopping Kinesis Producer/Consumer")
           (async/close! producer-in-ch)
-          (shutdown-workers! [(:generic-event-worker component)
-                              (:generic-command-worker component)])
+          (shutdown-workers! (keep identity
+                                   [(:generic-event-worker component)
+                                    (:generic-command-worker component)]))
           (dissoc component
                   :workers
                   :streams
