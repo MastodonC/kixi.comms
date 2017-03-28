@@ -248,24 +248,27 @@
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! endpoint (vals streams))
         (create-producer endpoint streams origin producer-chan)
-        (assoc component
-               :id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
-               :id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
-               :streams streams
-               :origin origin
-               :producer-in-ch producer-chan
-               :generic-event-worker (attach-generic-processing-switch
-                                      (-> (select-keys component client-config-kws)
-                                          (assoc :stream (:event streams))
-                                          (update :app
-                                                  (fn [n] (event-worker-app-name n profile))))
-                                      id->handle-msg-and-process-msg-atom)
-               :generic-command-worker (attach-generic-processing-switch
-                                        (-> (select-keys component client-config-kws)
-                                            (assoc :stream (:command streams))
-                                            (update :app
-                                                    (fn [n] (command-worker-app-name n profile))))
-                                        id->command-handle-msg-and-process-msg-atom)))
+        (merge
+         (assoc component              
+                :streams streams
+                :origin origin
+                :producer-in-ch producer-chan)
+         (when (:event streams)
+           {:id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
+            :generic-event-worker (attach-generic-processing-switch
+                                   (-> (select-keys component client-config-kws)
+                                       (assoc :stream (:event streams))
+                                       (update :app
+                                               (fn [n] (event-worker-app-name n profile))))
+                                   id->handle-msg-and-process-msg-atom)})
+         (when (:command streams)
+           {:id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom            
+            :generic-command-worker (attach-generic-processing-switch
+                                     (-> (select-keys component client-config-kws)
+                                         (assoc :stream (:command streams))
+                                         (update :app
+                                                 (fn [n] (command-worker-app-name n profile))))
+                                     id->command-handle-msg-and-process-msg-atom)})))
       component))
   (stop [component]
     (let [{:keys [producer-in-ch]} component]
