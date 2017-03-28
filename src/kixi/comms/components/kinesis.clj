@@ -115,12 +115,10 @@
 (defn shutdown-workers!
   [workers]
   (doseq [[f ^Worker w id] workers]
-    (when w
-      (info "Shutting down worker" id w)
-      (.shutdown w)))
+    (info "Shutting down worker" id w)
+    (.shutdown w))
   (doseq [[f ^Worker w id] workers]
-    (when f
-      (deref f))))
+    (deref f)))
 
 (defn create-producer
   [endpoint stream-names origin in-chan]
