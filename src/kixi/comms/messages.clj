@@ -39,19 +39,19 @@
                                        kixi.comms.event/version
                                        kixi.comms.event/payload] :as f}]
                 (comms/send-event! comms-component key version payload
-                                   {:command-id (:kixi.comms.command/id original)}))]
+                                   {:kixi.comms.command/id (:kixi.comms.command/id original)
+                                    :seq-num (:seq-num f)}))]
         (if (sequential? result)
-          (run! send-event-fn! result)
+          (run! send-event-fn! (map-indexed #(assoc %2 :seq-num %1) result))
           (send-event-fn! result))))))
 
 (defn msg-handler-fn
   [component-handler result-handler]
   (fn [msg]
-    (async/thread
-      (try
-        (result-handler msg (component-handler msg))
-        (catch Exception e
-          (error e (str "Consumer exception processing msg. Msg: " msg)))))))
+    (try
+      (result-handler msg (component-handler msg))
+      (catch Exception e
+        (error e (str "Consumer exception processing msg. Msg: " msg))))))
 
 (defn clj->transit
   ([m]
@@ -74,7 +74,7 @@
 
 (defmethod format-message
   :command
-  [_ command-key command-version user payload {:keys [id created-at]}]
+  [_ command-key command-version user payload {:keys [kixi.comms.command/id created-at]}]
   {:kixi.comms.message/type       "command"
    :kixi.comms.command/id         (or id (str (java.util.UUID/randomUUID)))
    :kixi.comms.command/key        command-key
@@ -85,7 +85,7 @@
 
 (defmethod format-message
   :event
-  [_ event-key event-version _ payload {:keys [origin command-id]}]
+  [_ event-key event-version _ payload {:keys [origin kixi.comms.command/id]}]
   (let [r {:kixi.comms.message/type     "event"
            :kixi.comms.event/id         (str (java.util.UUID/randomUUID))
            :kixi.comms.event/key        event-key
@@ -93,8 +93,8 @@
            :kixi.comms.event/created-at (t/timestamp)
            :kixi.comms.event/payload    payload
            :kixi.comms.event/origin     origin}]
-    (if command-id
-      (assoc r :kixi.comms.command/id command-id)
+    (if id
+      (assoc r :kixi.comms.command/id id)
       r)))
 
 (defn edn-to-bytebuffer

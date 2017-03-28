@@ -87,6 +87,32 @@
       (is (= :test/test-a (get-in event [:kixi.comms.event/payload :kixi.comms.command/key])))
       (is (= (:kixi.comms.command/id command) (:kixi.comms.command/id event))))))
 
+(defn roundtrip-command->multi-event
+  [component opts]
+  (let [event-count 20
+        c-result (atom [])
+        e-result (atom [])
+        id (str (java.util.UUID/randomUUID))
+        events-finder-fn (fn [id events]
+                          (filter (fn [e] (= id (get-in e [:kixi.comms.event/payload :kixi.comms.command/payload :id]))) events))]
+    (comms/attach-command-handler! component :component-n :test/test-b "1.0.0" (partial swap-conj-as-multi-events! event-count c-result))
+    (comms/attach-event-handler! component :component-o :test/test-b-event "1.0.0" (fn [x] (swap! e-result conj x) nil))
+    (comms/send-command! component :test/test-b "1.0.0" user {:test "roundtrip-command->multi-events" :id id})
+    (is (wait-for-atom
+         c-result *wait-tries* *wait-per-try*
+         (contains-command-id? id)))
+    (is (wait-for-atom
+         e-result *wait-tries* *wait-per-try*
+         #(= event-count (count (events-finder-fn id %)))))
+    (let [events (events-finder-fn id @e-result)
+          event-keys (map #(get-in % [:kixi.comms.event/payload :kixi.comms.command/key]) events)
+          event-command-ids (map :kixi.comms.command/id events)
+          event-index-create-order (map-indexed #(vector %1 (get-in %2 [:kixi.comms.event/payload :create-order])) events)
+          command ((contains-command-id? id) @c-result)]
+      (is (every? #{:test/test-b} event-keys))
+      (is (every? #{(:kixi.comms.command/id command)} event-command-ids))
+      (is (every? (fn [[dex event-num]] (= dex event-num)) event-index-create-order)))))
+
 (defn roundtrip-command->event-with-key
   [component opts]
   (let [c-result (atom [])
