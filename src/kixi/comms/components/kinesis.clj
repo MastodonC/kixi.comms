@@ -133,11 +133,14 @@
                 cmd-id (:kixi.comms.command/id opts)]
             (when comms/*verbose-logging*
               (info "Sending msg to Kinesis stream" stream-name ":" formatted))
-            (kinesis/put-record {:endpoint endpoint}
-                                stream-name
-                                formatted
-                                (or cmd-id (str (java.util.UUID/randomUUID)))
-                                (some-> seq-num str))
+            (try
+              (kinesis/put-record {:endpoint endpoint}
+                                  stream-name
+                                  formatted
+                                  (or cmd-id (str (java.util.UUID/randomUUID)))
+                                  (some-> seq-num str))
+              (catch Throwable e
+                (error e "Producer threw an exception!")))
             (recur)))))))
 
 (defn attach-generic-processing-switch
@@ -248,24 +251,27 @@
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! endpoint (vals streams))
         (create-producer endpoint streams origin producer-chan)
-        (assoc component
-               :id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
-               :id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
-               :streams streams
-               :origin origin
-               :producer-in-ch producer-chan
-               :generic-event-worker (attach-generic-processing-switch
-                                      (-> (select-keys component client-config-kws)
-                                          (assoc :stream (:event streams))
-                                          (update :app
-                                                  (fn [n] (event-worker-app-name n profile))))
-                                      id->handle-msg-and-process-msg-atom)
-               :generic-command-worker (attach-generic-processing-switch
-                                        (-> (select-keys component client-config-kws)
-                                            (assoc :stream (:command streams))
-                                            (update :app
-                                                    (fn [n] (command-worker-app-name n profile))))
-                                        id->command-handle-msg-and-process-msg-atom)))
+        (merge
+         (assoc component              
+                :streams streams
+                :origin origin)
+         (when (:event streams)
+           {:id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
+            :generic-event-worker (attach-generic-processing-switch
+                                   (-> (select-keys component client-config-kws)
+                                       (assoc :stream (:event streams))
+                                       (update :app
+                                               (fn [n] (event-worker-app-name n profile))))
+                                   id->handle-msg-and-process-msg-atom)})
+         (when (:command streams)
+           {:id->command-handle-msg-and-process-msg-atom id->command-handle-msg-and-process-msg-atom
+            :producer-in-ch producer-chan
+            :generic-command-worker (attach-generic-processing-switch
+                                     (-> (select-keys component client-config-kws)
+                                         (assoc :stream (:command streams))
+                                         (update :app
+                                                 (fn [n] (command-worker-app-name n profile))))
+                                     id->command-handle-msg-and-process-msg-atom)})))
       component))
   (stop [component]
     (let [{:keys [producer-in-ch]} component]
