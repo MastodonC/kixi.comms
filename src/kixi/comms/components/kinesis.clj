@@ -223,8 +223,10 @@
 
   (detach-handler! [{:keys [id->handle-msg-and-process-msg-atom
                             id->command-handle-msg-and-process-msg-atom] :as this} worker-id]
-    (swap! id->handle-msg-and-process-msg-atom dissoc worker-id)
-    (swap! id->command-handle-msg-and-process-msg-atom dissoc worker-id))
+    (when id->handle-msg-and-process-msg-atom
+      (swap! id->handle-msg-and-process-msg-atom dissoc worker-id))
+    (when id->command-handle-msg-and-process-msg-atom
+      (swap! id->command-handle-msg-and-process-msg-atom dissoc worker-id)))
   component/Lifecycle
   (start [component]
     (timbre/merge-config! {:ns-blacklist ["org.apache.http.*"
