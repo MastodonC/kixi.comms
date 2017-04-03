@@ -29,6 +29,22 @@
                    (:kixi.comms.event/version msg))))
        msg))))
 
+(defn vec-if-not
+  [x]
+  (if (sequential? x)
+    x
+    [x]))
+
+(defn unsafe-event
+  [msg]
+  (fn [resp]
+    (when (and (= (:kixi.comms.event/key msg)
+                  (:kixi.comms.event/key resp))
+               (= (:kixi.comms.event/version msg)
+                  (:kixi.comms.event/version resp)))
+      (error (str "Infinte loop defeated: " msg))
+      true)))
+
 (defn handle-result
   [comms-component msg-type original result]
   (when (or (= msg-type :command) result)
@@ -41,9 +57,11 @@
                 (comms/send-event! comms-component key version payload
                                    {:kixi.comms.command/id (:kixi.comms.command/id original)
                                     :seq-num (:seq-num f)}))]
-        (if (sequential? result)
-          (run! send-event-fn! (map-indexed #(assoc %2 :seq-num %1) result))
-          (send-event-fn! result))))))
+        (->> result
+             vec-if-not
+             (remove (unsafe-event original))
+             (map-indexed #(assoc %2 :seq-num %1))
+             (run! send-event-fn!))))))
 
 (defn msg-handler-fn
   [component-handler result-handler]

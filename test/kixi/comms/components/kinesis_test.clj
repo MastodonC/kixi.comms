@@ -119,3 +119,7 @@
 (deftest kinesis-detaching-a-handler
   (binding [*wait-per-try* long-wait]
     (all-tests/detaching-a-handler (:kinesis @system) opts)))
+
+(deftest kinesis-infinite-loop-defended
+  (binding [*wait-per-try* long-wait]
+    (all-tests/infinite-loop-defended (:kinesis @system) opts)))
