@@ -1,5 +1,5 @@
 (def slf4j-version "1.7.21")
-(defproject kixi/kixi.comms "0.2.12"
+(defproject kixi/kixi.comms "0.2.13-SNAPSHOT"
   :description "FIXME: write description"
   :url "https://github.com/MastodonC/kixi.comms"
   :license {:name "Eclipse Public License"
