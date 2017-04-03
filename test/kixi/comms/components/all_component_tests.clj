@@ -177,3 +177,13 @@
       (is (nil? (wait-for-atom
                  e-result *wait-tries* *wait-per-try*
                  (contains-event-id? id))) (pr-str @e-result)))))
+
+(defn infinite-loop-defended
+  [component opts]
+  (let [result (atom [])
+        id (str (java.util.UUID/randomUUID))]
+    (comms/attach-event-handler! component :component-p :test/foo-c "1.0.0" #(do (swap! result conj %) %))
+    (comms/send-event! component :test/foo-c "1.0.0" {:test "event-infinte-loop-test" :id id})
+    (is (wait-for-atom
+         result *wait-tries* *wait-per-try*
+         (contains-event-id? id)) id)))
