@@ -159,11 +159,11 @@
 
 (defn event-worker-app-name
   [app profile]
-  (str app "-" profile generic-event-worker-postfix))
+  (str profile "-" app generic-event-worker-postfix))
 
 (defn command-worker-app-name
   [app profile]
-  (str app "-" profile generic-command-worker-postfix))
+  (str profile "-" app generic-command-worker-postfix))
 
 (defrecord Kinesis [app-name endpoint dynamodb-endpoint region-name streams
                     origin checkpoint profile kinesis-options
