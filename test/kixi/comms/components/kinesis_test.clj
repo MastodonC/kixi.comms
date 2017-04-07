@@ -20,8 +20,8 @@
 (def app-name "kixi-comms-test")
 
 (def test-region "eu-central-1")
-(def test-stream-names {:command (str "kixi-comms-test-" profile "-command")
-                        :event   (str "kixi-comms-test-" profile "-event")})
+(def test-stream-names {:command (str profile "-kixi-comms-test-command")
+                        :event   (str profile "-kixi-comms-test-event")})
 
 (def dynamodb-table-names [(event-worker-app-name app-name profile)
                            (command-worker-app-name app-name profile)])
