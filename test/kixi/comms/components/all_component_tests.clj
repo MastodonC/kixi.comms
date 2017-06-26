@@ -187,3 +187,69 @@
     (is (wait-for-atom
          result *wait-tries* *wait-per-try*
          (contains-event-id? id)) id)))
+
+(defn events-are-partitioned
+  "Tests that the option partition-key is respected.
+   The test stream *MUST* have multiple streams/paritions for this test to prove anything!"
+  [component opts]
+  (let [result (atom [])
+        values (range 0 50)
+        partition-key (str (java.util.UUID/randomUUID))]
+    (comms/attach-event-handler! component :component-q :test/foo-d "1.0.0" #(do (swap! result conj (get-in % [:kixi.comms.event/payload :val])) %))
+    (doseq [v values]
+      (comms/send-event! component :test/foo-d "1.0.0"
+                         {:test "events-are-partitioned"
+                          :val v}
+                         {:kixi.comms.event/partition-key partition-key}))
+    (wait-for-atom
+     result *wait-tries* *wait-per-try*
+     #(= (count %) (count values)))
+    (is (= (count @result)
+           (count values)))
+    (is (true? (apply < @result)))))
+
+(defn commands-are-partitioned
+  "Tests that the option partition-key is respected.
+   The test stream *MUST* have multiple shards/paritions for this test to prove anything!"
+  [component opts]
+  (let [result (atom [])
+        values (range 0 50)
+        partition-key (str (java.util.UUID/randomUUID))]
+    (comms/attach-command-handler! component :component-r :test/foo-e "1.0.0" #(do (swap! result conj (get-in % [:kixi.comms.command/payload :val]))
+                                                                                   (cmd->event %)))
+    (doseq [v values]
+      (comms/send-command! component :test/foo-e "1.0.0"
+                           user
+                           {:test "commands-are-partitioned"
+                            :val v}
+                           {:kixi.comms.command/partition-key partition-key}))
+    (wait-for-atom
+     result *wait-tries* *wait-per-try*
+     #(= (count %) (count values)))
+    (is (= (count @result)
+           (count values)))
+    (is (true? (apply < @result)))))
+
+(defn command-produced-events-are-partitioned
+  "Tests that the option partition-key is respected.
+   The test stream *MUST* have multiple shards/paritions for this test to prove anything!"
+  [component opts]
+  (let [result (atom [])
+        values (range 0 50)
+        partition-key (str (java.util.UUID/randomUUID))]
+    (comms/attach-command-handler! component :component-s :test/foo-f "1.0.0" #(assoc (cmd->event %)
+                                                                                      :kixi.comms.event/partition-key partition-key))
+    (comms/attach-event-handler! component :component-t :test/foo-f-event "1.0.0" 
+                                 #(do (swap! result conj (get-in % [:kixi.comms.event/payload :kixi.comms.command/payload :val])) nil))
+    (doseq [v values]
+      (comms/send-command! component :test/foo-f "1.0.0"
+                           user
+                           {:test "command-produced-events-are-partitioned"
+                            :val v}
+                           {:kixi.comms.command/partition-key partition-key}))
+    (wait-for-atom
+     result *wait-tries* *wait-per-try*
+     #(= (count %) (count values)))
+    (is (= (count @result)
+           (count values)))
+    (is (true? (apply < @result)))))

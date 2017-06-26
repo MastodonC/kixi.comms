@@ -100,3 +100,12 @@
 
 (deftest kafka-detaching-a-handler
   (all-tests/detaching-a-handler (:kafka @system)))
+
+(deftest kafka-events-are-partitioned
+  (all-tests/events-are-partitioned (:kafka @system)))
+
+(deftest kafka-commands-are-partitioned
+  (all-tests/commands-are-partitioned (:kafka @system)))
+
+(deftest kafka-command-produced-events-are-partitioned
+  (all-tests/command-produced-events-are-partitioned(:kafka @system)))
