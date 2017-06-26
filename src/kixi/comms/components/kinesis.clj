@@ -31,7 +31,7 @@
   [endpoint streams]
   (let [{:keys [stream-names]} (list-streams endpoint)
         missing-streams (remove (set stream-names) streams)
-        shards 1]
+        shards 2]
     (doseq [stream-name missing-streams]
       (info "Creating stream" stream-name "with" shards "shard(s)!")
       (kinesis/create-stream {:endpoint endpoint} stream-name shards))
@@ -129,6 +129,9 @@
           (let [[stream-name-key _ _ _ _ opts] msg
                 stream-name (get stream-names stream-name-key)
                 formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+                partition-key (or (:kixi.comms.event/partition-key opts)
+                                  (:kixi.comms.command/partition-key opts)
+                                  (str (java.util.UUID/randomUUID)))
                 seq-num (:seq-num opts)
                 cmd-id (:kixi.comms.command/id opts)]
             (when comms/*verbose-logging*
@@ -136,7 +139,7 @@
             (kinesis/put-record {:endpoint endpoint}
                                 stream-name
                                 formatted
-                                (or cmd-id (str (java.util.UUID/randomUUID)))
+                                partition-key
                                 (some-> seq-num str))
             (recur)))))))
 

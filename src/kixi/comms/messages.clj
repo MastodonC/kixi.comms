@@ -53,10 +53,14 @@
                               (s/explain-data ::ks/event-result result))))
       (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
                                        kixi.comms.event/version
+                                       kixi.comms.event/partition-key
                                        kixi.comms.event/payload] :as f}]
                 (comms/send-event! comms-component key version payload
-                                   {:kixi.comms.command/id (:kixi.comms.command/id original)
-                                    :seq-num (:seq-num f)}))]
+                                   (merge
+                                    {:kixi.comms.command/id (:kixi.comms.command/id original)
+                                     :seq-num (:seq-num f)}
+                                    (when partition-key
+                                      {:kixi.comms.event/partition-key partition-key}))))]
         (->> result
              vec-if-not
              (remove (unsafe-event original))
@@ -119,10 +123,9 @@
   [edn]
   (let [data (str edn)
         buf (ByteBuffer/wrap (.getBytes data))]
-    buf)
-  )
+    buf))
 
-(defn bytebuffer-to-edn [byte-buffer]
+(defn bytebuffer-to-edn [^ByteBuffer byte-buffer]
   (let [b (byte-array (.remaining byte-buffer))]
     (.get byte-buffer b)
     (clojure.edn/read-string (String. b))))

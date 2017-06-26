@@ -123,3 +123,15 @@
 (deftest kinesis-infinite-loop-defended
   (binding [*wait-per-try* long-wait]
     (all-tests/infinite-loop-defended (:kinesis @system) opts)))
+
+(deftest kinesis-events-are-partitioned
+  (binding [*wait-per-try* long-wait]
+    (all-tests/events-are-partitioned (:kinesis @system) opts)))
+
+(deftest kinesis-commands-are-partitioned
+  (binding [*wait-per-try* long-wait]
+    (all-tests/commands-are-partitioned (:kinesis @system) opts)))
+
+(deftest kinesis-command-produced-events-are-partitioned
+  (binding [*wait-per-try* long-wait]
+    (all-tests/command-produced-events-are-partitioned (:kinesis @system) opts)))
