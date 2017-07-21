@@ -18,16 +18,29 @@
        msg)))
   ([msg-type event version]
    (fn [msg]
-     (when (and
-            (= (name msg-type)
-               (:kixi.comms.message/type msg))
-            (= event
-               (or (:kixi.comms.command/key msg)
-                   (:kixi.comms.event/key msg)))
-            (= version
-               (or (:kixi.comms.command/version msg)
-                   (:kixi.comms.event/version msg))))
-       msg))))
+     (or
+                                        ;old format
+      (when (and
+             (= (name msg-type)
+                (:kixi.comms.message/type msg))
+             (= event
+                (or (:kixi.comms.command/key msg)
+                    (:kixi.comms.event/key msg)))
+             (= version
+                (or (:kixi.comms.command/version msg)
+                    (:kixi.comms.event/version msg))))
+        msg)
+                                        ;new format
+      (when (and
+             (= msg-type
+                (:kixi.message/type msg))
+             (= event
+                (or (:kixi.command/type msg)
+                    (:kixi.event/type msg)))
+             (= version
+                (or (:kixi.command/version msg)
+                    (:kixi.event/version msg))))
+        msg)))))
 
 (defn vec-if-not
   [x]
@@ -74,6 +87,49 @@
       (result-handler msg (component-handler msg))
       (catch Exception e
         (error e (str "Consumer exception processing msg. Msg: " msg))))))
+
+(s/def ::command-result
+  (let [single-result (s/cat :event :kixi/event
+                             :opts :kixi.event/options)]
+    (s/or :single single-result
+          :multi (s/coll-of single-result))))
+
+(defn command-handler
+  [comms-component service-cmd-handler]
+  (fn [command]
+    (when-not (s/valid? :kixi/command command)
+      (throw (ex-info "Invalid command" (s/explain-data :kixi/command command))))
+    (let [result (service-cmd-handler command)]
+      (when-not (s/valid? ::command-result result)
+        (throw (ex-info "Invalid command result" (s/explain-data ::command-result result))))
+      (let [conformed-result (apply hash-map (s/conform ::command-result result))]
+        (doseq [{:keys [event opts]} (or (:multi conformed-result)
+                                            [(:single conformed-result)])]
+          (comms/send-valid-event! comms-component
+                                   event
+                                   opts))))))
+
+(s/def ::event-result
+  (let [single-result (s/cat :cmd :kixi/command
+                             :opts :kixi.command/options)]
+    (s/or :nil nil?
+          :single single-result
+          :multi (s/coll-of single-result))))
+
+(defn event-handler
+  [comms-component service-event-handler]
+  (fn [event]
+    (when-not (s/valid? :kixi/event event)
+      (throw (ex-info "Invalid event" (s/explain-data :kixi/event event))))
+    (let [result (service-event-handler event)]
+      (when-not (s/valid? ::event-result result)
+        (throw (ex-info "Invalid event result" (s/explain-data ::event-result result))))
+      (let [conformed-result (apply hash-map (s/conform ::event-result result))]
+        (doseq [{:keys [cmd opts]} (or (:multi conformed-result)
+                                       [(:single conformed-result)])]
+          (comms/send-valid-command! comms-component
+                                     cmd
+                                     opts))))))
 
 (defn clj->transit
   ([m]
