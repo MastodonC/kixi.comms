@@ -1,7 +1,11 @@
 (ns kixi.comms.components.all-component-tests
   (:require  [clojure.test :refer :all]
+             [clojure.spec :as s]
+             [clojure.spec.test :as st]
+             [com.gfredericks.schpec :as sh]
              [kixi.comms :as comms]
-             [kixi.comms.components.test-base :refer :all]))
+             [kixi.comms.components.test-base :refer :all]
+             [clojure.spec :as s]))
 
 (def long-session-timeout 10000)
 
@@ -10,33 +14,171 @@
 (defn contains-event-id?
   [id]
   (fn [events]
-    (some (fn [c] (when (= id (get-in c [:kixi.comms.event/payload :id])) c)) events)))
+    (some (fn [c] (when (= id (or (get-in c [:kixi.comms.event/payload :id])
+                                  (:id c)))
+                    c)) 
+          events)))
 
 (defn contains-command-id?
   [id]
   (fn [commands]
-    (some (fn [c] (when (= id (get-in c [:kixi.comms.command/payload :id])) c)) commands)))
+    (some (fn [c] (when (= id (or (get-in c [:kixi.comms.command/payload :id])
+                                  (:id c))) c)) 
+          commands)))
+
+(sh/alias 'command 'kixi.command)
+(sh/alias 'event 'kixi.event)
+
+(st/instrument ['kixi.comms/send-valid-command!
+                'kixi.comms/send-valid-event!])
+
+(s/def ::test string?)
+(s/def ::id string?)
+
+(defmethod kixi.comms/command-payload
+  [:test/vfoo "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/event-payload
+  [:test/vfoo-event "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/command-type->event-types
+  [:test/vfoo "1.0.0"]
+  [_]
+  #{[:test/vfoo-event "1.0.0"]})
+
+(defmethod kixi.comms/command-payload
+  [:test/cmd-event-cond "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/event-payload
+  [:test/cmd-event-cond-event "1.0.1"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/command-type->event-types
+  [:test/cmd-event-cond "1.0.0"]
+  [_]
+  #{[:test/cmd-event-cond-event "1.0.0"]})
+
+(defmethod kixi.comms/event-payload
+  [:test/vfoo-b "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/command-payload
+  [:test/vfoo-b-cmd "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
 
 (defn command-roundtrip-test
-  [component opts]
-  (let [result (atom [])
-        id (str (java.util.UUID/randomUUID))]
-    (comms/attach-command-handler! component :component-a :test/foo "1.0.0"
-                                   (partial swap-conj-as-event! result))
-    (comms/send-command! component :test/foo "1.0.0" user {:test "command-roundtrip-test" :id id})
-    (is (wait-for-atom
-         result *wait-tries* *wait-per-try*
-         (contains-command-id? id)) id)))
+  [component opts]  
+  (testing "Unvalidated command send"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-command-handler! component :component-a :test/foo "1.0.0"
+                                     (partial swap-conj-as-event! result))
+      (comms/send-command! component :test/foo "1.0.0" user {:test "command-roundtrip-test" :id id})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-command-id? id)) id)))
+  (testing "Validated command send"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-validating-command-handler! component :component-aa :test/vfoo "1.0.0"
+                                                (partial swap-conj-as-event! result))
+      (comms/send-valid-command! component 
+                                 {:kixi.message/type :command
+                                  ::command/type :test/vfoo
+                                  ::command/version "1.0.0"
+                                  :kixi/user user 
+                                  :test "validated-command-roundtrip-test" 
+                                  :id id}
+                                 {:partition-key id})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-command-id? id)) id)))
+  (testing "Validated command send - invalid command"
+    (let [id (str (java.util.UUID/randomUUID))]
+      (is (thrown-with-msg?
+           Exception
+           #"Invalid command"
+           (comms/send-valid-command! component 
+                                      {::command/type :test/vfoo
+                                       ::command/version "1.0.0" 
+                                       :kixi/user (dissoc user
+                                                          :kixi.user/id)
+                                       :test "command-invalid-test" 
+                                       :id id}
+                                      {:partition-key id})))))
+  (testing "Validated command type to event type conditions are applied"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-validating-command-handler! component :component-aaa :test/cmd-event-cond "1.0.0"
+                                                #(update (swap-conj-as-event! result %)
+                                                         0
+                                                         (fn [e] (assoc e ::event/version "1.0.1"))))
+      (comms/send-valid-command! component 
+                                 {:kixi.message/type :command
+                                  ::command/type :test/cmd-event-cond
+                                  ::command/version "1.0.0"
+                                  :kixi/user user 
+                                  :test "validated-command-type-condition-applied" 
+                                  :id id}
+                                 {:partition-key id})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-command-id? id)) id))))
 
 (defn event-roundtrip-test
   [component opts]
-  (let [result (atom [])
-        id (str (java.util.UUID/randomUUID))]
-    (comms/attach-event-handler! component :component-b :test/foo-b "1.0.0" (partial swap-conj-as-event! result))
-    (comms/send-event! component :test/foo-b "1.0.0" {:test "event-roundtrip-tes" :id id})
-    (is (wait-for-atom
-         result *wait-tries* *wait-per-try*
-         (contains-event-id? id)) id)))
+  (testing "Unvalidated event send"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-event-handler! component :component-b :test/foo-b "1.0.0" (partial swap-conj-as-event! result))
+      (comms/send-event! component :test/foo-b "1.0.0" {:test "event-roundtrip-test" :id id})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-event-id? id)) id)))
+  (testing "Validated event send"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-validating-event-handler! component :component-b :test/vfoo-b "1.0.0" (partial swap-conj! result))
+      (comms/send-valid-event! component 
+                               {:kixi.message/type :event
+                                ::event/type :test/vfoo-b
+                                ::event/version "1.0.0"
+                                ::command/id id
+                                :kixi/user user
+                                :test "event-validating-roundtrip-test"
+                                :id id}
+                               {:partition-key id})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-event-id? id)) id)))
+  (testing "Validated event send - invalid event"
+    (let [id (str (java.util.UUID/randomUUID))]
+      (is (thrown-with-msg?
+           Exception
+           #"Invalid event"
+           (comms/send-valid-event! component 
+                                    {::event/type :test/vfoo-b
+                                     ::event/version "1.0.0"
+                                     ::command/id "not-valid-cmd-id"
+                                     :kixi/user user
+                                     :test "event-invalid-roundtrip-test"
+                                     :id id}
+                                    {:partition-key id}))))))
 
 (defn only-correct-handler-gets-message
   [component opts]

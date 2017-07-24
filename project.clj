@@ -7,6 +7,7 @@
   :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
                  [org.clojure/core.async "0.3.443"]
                  [com.cognitect/transit-clj "0.8.290"]
+                 [com.gfredericks/schpec "0.1.1"]
                  [com.taoensso/encore "2.89.0"]
                  [com.stuartsierra/component "0.3.1"]
                  [com.fzakaria/slf4j-timbre "0.3.2"]

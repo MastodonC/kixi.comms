@@ -52,44 +52,44 @@
 
 (def long-wait 50)
 
-(deftest kinesis-command-roundtrip-test
+(deftest coreasync-command-roundtrip-test
   (binding [*wait-per-try* long-wait]
     (all-tests/command-roundtrip-test (:coreasync @system) opts)))
 
-(deftest kinesis-event-roundtrip-test
+(deftest coreasync-event-roundtrip-test
   (binding [*wait-per-try* long-wait]
     (all-tests/event-roundtrip-test (:coreasync @system) opts)))
 
-(deftest kinesis-only-correct-handler-gets-message
+(deftest coreasync-only-correct-handler-gets-message
   (binding [*wait-per-try* long-wait]
     (all-tests/only-correct-handler-gets-message (:coreasync @system) opts)))
 
-(deftest kinesis-multiple-handlers-get-same-message
+(deftest coreasync-multiple-handlers-get-same-message
   (binding [*wait-per-try* long-wait]
     (all-tests/multiple-handlers-get-same-message (:coreasync @system) opts)))
 
-(deftest kinesis-roundtrip-command->event
+(deftest coreasync-roundtrip-command->event
   (binding [*wait-per-try* long-wait]
     (all-tests/roundtrip-command->event (:coreasync @system) opts)))
 
-(deftest kinesis-roundtrip-command->event-with-key
+(deftest coreasync-roundtrip-command->event-with-key
   (binding [*wait-per-try* long-wait]
     (all-tests/roundtrip-command->event-with-key (:coreasync @system) opts)))
 
-(deftest kinesis-roundtrip-command->multi-event
+(deftest coreasync-roundtrip-command->multi-event
   (binding [*wait-per-try* long-wait]
     (all-tests/roundtrip-command->multi-event (:coreasync @system) opts)))
 
 (comment "Test not applicable as core async has no session"
-         (deftest kinesis-processing-time-gt-session-timeout
+         (deftest coreasync-processing-time-gt-session-timeout
            (binding [*wait-per-try* long-wait]
              (all-tests/processing-time-gt-session-timeout (:coreasync @system) opts))))
 
-(deftest kinesis-detaching-a-handler
+(deftest coreasync-detaching-a-handler
   (binding [*wait-per-try* long-wait]
     (all-tests/detaching-a-handler (:coreasync @system) opts)))
 
-(deftest kinesis-infinite-loop-defended
+(deftest coreasync-infinite-loop-defended
   (binding [*wait-per-try* long-wait]
     (all-tests/infinite-loop-defended (:coreasync @system) opts)))
 

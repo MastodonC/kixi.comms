@@ -120,28 +120,47 @@
   (doseq [[f ^Worker w id] workers]
     (deref f)))
 
+(defn old-format-putter
+  [endpoint stream-names origin msg]
+  (let [[stream-name-key _ _ _ _ opts] msg
+        stream-name (get stream-names stream-name-key)
+        formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
+        partition-key (or (:kixi.comms.event/partition-key opts)
+                          (:kixi.comms.command/partition-key opts)
+                          (str (java.util.UUID/randomUUID)))
+        seq-num (:seq-num opts)
+        cmd-id (:kixi.comms.command/id opts)]
+    (when comms/*verbose-logging*
+      (info "Sending msg to Kinesis stream" stream-name ":" formatted))
+    (kinesis/put-record {:endpoint endpoint}
+                        stream-name
+                        formatted
+                        partition-key
+                        (some-> seq-num str))))
+
+(defn new-format-putter
+  [endpoint stream-names origin [stream-name-key msg opts]]
+  (let [stream-name (get stream-names stream-name-key)
+        seq-num (:seq-num opts)]
+    (when comms/*verbose-logging*
+      (info "Sending msg to Kinesis stream" stream-name ":" msg))
+    (kinesis/put-record {:endpoint endpoint}
+                        stream-name
+                        (assoc msg
+                               :kixi.message/origin origin)
+                        (:partition-key opts)
+                        (some-> seq-num str))))
+
 (defn create-producer
   [endpoint stream-names origin in-chan]
   (async/go
     (loop []
       (let [msg (async/<! in-chan)]
-        (if msg
-          (let [[stream-name-key _ _ _ _ opts] msg
-                stream-name (get stream-names stream-name-key)
-                formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
-                partition-key (or (:kixi.comms.event/partition-key opts)
-                                  (:kixi.comms.command/partition-key opts)
-                                  (str (java.util.UUID/randomUUID)))
-                seq-num (:seq-num opts)
-                cmd-id (:kixi.comms.command/id opts)]
-            (when comms/*verbose-logging*
-              (info "Sending msg to Kinesis stream" stream-name ":" formatted))
-            (kinesis/put-record {:endpoint endpoint}
-                                stream-name
-                                formatted
-                                partition-key
-                                (some-> seq-num str))
-            (recur)))))))
+        (when msg
+          (if (= 3 (count msg))
+            (new-format-putter endpoint stream-names origin msg)
+            (old-format-putter endpoint stream-names origin msg))
+          (recur))))))
 
 (defn attach-generic-processing-switch
   [config id->handle-msg-and-process-msg-atom]
@@ -180,12 +199,23 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:event event version nil payload opts])))
 
+  (-send-event! [{:keys [producer-in-ch]} event opts]    
+    (when producer-in-ch
+      (debug "# Putting event: " event)
+      (async/put! producer-in-ch [:event event opts])))
+
   (send-command! [comms command version user payload]
     (comms/send-command! comms command version user payload {}))
 
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
+
+  (-send-command! [{:keys [producer-in-ch]} command opts]
+    (when producer-in-ch
+      (debug "# Putting command: " command)
+      (async/put! producer-in-ch [:command command opts])))
+
   (attach-event-with-key-handler!
     [{:keys [stream-names workers] :as this}
      group-id map-key handler]
@@ -210,6 +240,19 @@
                  :handle-msg  (msg/msg-handler-fn handler
                                                   (partial msg/handle-result this :event))})
       id))
+
+  (attach-validating-event-handler!
+    [{:keys [stream-names workers] :as this}
+     group-id event version handler]
+    (info "Attaching event handler for" event version)
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          id (java.util.UUID/randomUUID)]
+      (swap! id->handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :event event version)
+                 :handle-msg  (msg/event-handler this handler)})
+      id))
+
   (attach-command-handler!
     [{:keys [stream-names workers] :as this}
      group-id command version handler]
@@ -222,6 +265,18 @@
                  :process-msg? (msg/process-msg? :command command version)
                  :handle-msg  (msg/msg-handler-fn handler
                                                   (partial msg/handle-result this :command))})
+      id))
+
+  (attach-validating-command-handler!
+    [{:keys [stream-names workers] :as this}
+     group-id command version handler]
+    (info "Attaching command handler for" command version)
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          id (java.util.UUID/randomUUID)]
+      (swap! id->command-handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :command command version)
+                 :handle-msg  (msg/command-handler this handler)})
       id))
 
   (detach-handler! [{:keys [id->handle-msg-and-process-msg-atom

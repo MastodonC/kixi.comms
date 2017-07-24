@@ -1,10 +1,19 @@
 (ns kixi.comms.components.test-base
   (:require [com.stuartsierra.component :as component]
+            [com.gfredericks.schpec :as sh]
             [taoensso.timbre :as timbre :refer [error info]]
             [environ.core :refer [env]]))
 
 (def ^:dynamic *wait-tries* (Integer/parseInt (env :wait-tries "160")))
 (def ^:dynamic *wait-per-try* (Integer/parseInt (env :wait-per-try "100")))
+
+(sh/alias 'msg 'kixi.message)
+(sh/alias 'command 'kixi.command)
+(sh/alias 'event 'kixi.event)
+
+(defn old-format?
+  [msg]
+  (not (::msg/type msg)))
 
 (defn wait
   [ms]
@@ -60,20 +69,53 @@
 
 (defn cmd->event
   [cmd]
-  {:kixi.comms.event/key (-> (or (:kixi.comms.command/key cmd)
-                                 (:kixi.comms.event/key cmd))
-                             (str)
-                             (subs 1)
-                             (str "-event")
-                             (keyword))
-   :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
-                                 (:kixi.comms.event/version cmd))
-   :kixi.comms.event/payload cmd})
+  (if (old-format? cmd)
+    {:kixi.comms.event/key (-> (or (:kixi.comms.command/key cmd)
+                                   (:kixi.comms.event/key cmd))
+                               (str)
+                               (subs 1)
+                               (str "-event")
+                               (keyword))
+     :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
+                                   (:kixi.comms.event/version cmd))
+     :kixi.comms.event/payload cmd}
+    [(merge {::event/type (-> cmd
+                              ::command/type
+                              (str)
+                              (subs 1)
+                              (str "-event")
+                              (keyword))
+             ::event/version (::command/version cmd)}
+            (select-keys cmd
+                         [:id :test]))
+     {:partition-key "1"}]))
+
+(defn event->cmd
+  [event]
+  [(merge {::command/type (-> event
+                              ::event/type
+                              (str)
+                              (subs 1)
+                              (str "-cmd")
+                              (keyword))
+           ::command/version (::event/version event)}
+          (select-keys event
+                       [:id :test]))
+   {:partition-key "1"}])
 
 (defn swap-conj-as-event!
   [a cmd]
   (swap! a conj cmd)
   (cmd->event cmd))
+
+(defn swap-conj-as-cmd!
+  [a event]
+  (swap! a conj event)
+  (event->cmd event))
+
+(defn swap-conj!
+  [a event]
+  (swap! a conj event))
 
 (defn swap-conj-as-multi-events!
   [cnt a cmd]

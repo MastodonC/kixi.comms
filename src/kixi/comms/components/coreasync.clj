@@ -30,12 +30,6 @@
           (debug "# NOT forwarding last message to handler" app-name)))
       (recur (async/<! target-chan)))))
 
-(defn put-msg
-  [ch msg]
-  (let [opts (last msg)
-        formatted (apply msg/format-message (conj (vec (butlast msg)) opts))]
-    (async/put! ch formatted)))
-
 (def buffersize-default 100)
 
 (defrecord CoreAsync [app-name profile buffersize
@@ -50,7 +44,13 @@
   (send-event! [{:keys [event-chan]} event version payload opts]
     (when event-chan
       (debug "# Putting event: " event version)
-      (put-msg event-chan [:event event version nil payload opts])))
+      (async/put! event-chan 
+                  (msg/format-message :event event version nil payload opts))))
+
+  (-send-event! [{:keys [event-chan]} event opts]    
+    (when event-chan
+      (debug "# Putting event: " event)
+      (async/put! event-chan event)))
 
   (send-command! [comms command version user payload]
     (comms/send-command! comms command version user payload {}))
@@ -58,8 +58,14 @@
   (send-command! [{:keys [cmd-chan]} command version user payload opts]
     (when cmd-chan
       (debug "# Putting command: " command version)
-      (put-msg cmd-chan [:command command version user payload opts])))
+      (async/put! cmd-chan 
+                  (msg/format-message :command command version user payload opts))))
 
+  (-send-command! [{:keys [cmd-chan]} command opts]
+    (when cmd-chan
+      (debug "# Putting command: " command)
+      (async/put! cmd-chan command)))
+  
   (attach-event-with-key-handler!
     [{:keys [stream-names workers] :as this}
      group-id map-key handler]
@@ -84,6 +90,19 @@
                  :handle-msg  (msg/msg-handler-fn handler
                                                   (partial msg/handle-result this :event))})
       id))
+
+  (attach-validating-event-handler!
+    [{:keys [stream-names workers] :as this}
+     group-id event version handler]
+    (info "Attaching event handler for" event version)
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          id (java.util.UUID/randomUUID)]
+      (swap! id->handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :event event version)
+                 :handle-msg  (msg/event-handler this handler)})
+      id))
+
   (attach-command-handler!
     [{:keys [stream-names workers] :as this}
      group-id command version handler]
@@ -96,6 +115,18 @@
                  :process-msg? (msg/process-msg? :command command version)
                  :handle-msg  (msg/msg-handler-fn handler
                                                   (partial msg/handle-result this :command))})
+      id))
+  
+  (attach-validating-command-handler!
+    [{:keys [stream-names workers] :as this}
+     group-id command version handler]
+    (info "Attaching command handler for" command version)
+    (let [sanitized-app-name (sanitize-app-name profile group-id)
+          id (java.util.UUID/randomUUID)]
+      (swap! id->command-handle-msg-and-process-msg-atom assoc
+             id {:app-name sanitized-app-name
+                 :process-msg? (msg/process-msg? :command command version)
+                 :handle-msg  (msg/command-handler this handler)})
       id))
 
   (detach-handler! [{:keys [id->handle-msg-and-process-msg-atom
