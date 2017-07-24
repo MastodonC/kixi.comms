@@ -113,6 +113,10 @@
   (swap! a conj event)
   (event->cmd event))
 
+(defn swap-conj!
+  [a event]
+  (swap! a conj event))
+
 (defn swap-conj-as-multi-events!
   [cnt a cmd]
   (swap! a conj cmd)

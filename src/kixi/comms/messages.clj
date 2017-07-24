@@ -10,6 +10,11 @@
   (:import [java.io ByteArrayInputStream ByteArrayOutputStream]
            [java.nio ByteBuffer]))
 
+
+(sh/alias 'event 'kixi.event)
+(sh/alias 'cmd 'kixi.command)
+
+
 (defn process-msg?
   ([msg-type pred]
    (fn [msg]
@@ -38,11 +43,11 @@
              (= msg-type
                 (:kixi.message/type msg))
              (= event
-                (or (:kixi.command/type msg)
-                    (:kixi.event/type msg)))
+                (or (::cmd/type msg)
+                    (::event/type msg)))
              (= version
-                (or (:kixi.command/version msg)
-                    (:kixi.event/version msg))))
+                (or (::cmd/version msg)
+                    (::event/version msg))))
         msg)))))
 
 (defn vec-if-not
@@ -96,9 +101,6 @@
                              :opts :kixi.event/options)]
     (s/or :single single-result
           :multi (s/coll-of single-result))))
-
-(sh/alias 'event 'kixi.event)
-(sh/alias 'cmd 'kixi.command)
 
 (defn cmd-result->events
   [result]
@@ -174,12 +176,13 @@
 
 (defn tag-command
   [event command]
-  (merge command
-         (select-keys event
-                      [:kixi/user
-                       ::event/id])
-         {:kixi.message/type :command
-          ::cmd/id (uuid)}))
+  (when command
+    (merge command
+           (select-keys event
+                        [:kixi/user
+                         ::event/id])
+           {:kixi.message/type :command
+            ::cmd/id (uuid)})))
 
 (defn event-handler
   [comms-component service-event-handler]
@@ -190,7 +193,7 @@
       (when (s/valid? ::event-result result)        
         (when-let [conformed-result (map (partial tag-command event)
                                          (event-result->commands result))]
-          (validate-commands conformed-result)
+          (validate-commands event conformed-result)
           (doseq [{:keys [cmd opts]} (or (:multi conformed-result)
                                          [(:single conformed-result)])]
             (comms/send-valid-command! comms-component

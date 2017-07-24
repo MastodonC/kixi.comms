@@ -43,8 +43,10 @@
 (sh/alias 'event 'kixi.event)
 
 
-(defmulti command-payload (juxt ::command/type
-                                ::command/version))
+(defmulti command-payload 
+  "Implementers must provide a s/keys definition for their command keys"
+  (juxt ::command/type
+        ::command/version))
 
 (s/def ::command/payload
   (s/multi-spec command-payload
@@ -81,8 +83,10 @@
                     cmd-with-id
                     opts)))
 
-(defmulti event-payload (juxt ::event/type
-                              ::event/version))
+(defmulti event-payload
+  "Implementers must provide a s/keys definition for their event keys"
+  (juxt ::event/type
+        ::event/version))
 
 (s/def ::event/payload
   (s/multi-spec event-payload

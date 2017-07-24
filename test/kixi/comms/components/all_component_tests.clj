@@ -104,7 +104,7 @@
                                   :kixi/user user 
                                   :test "validated-command-roundtrip-test" 
                                   :id id}
-                                 {:partition-key ""})
+                                 {:partition-key id})
       (is (wait-for-atom
            result *wait-tries* *wait-per-try*
            (contains-command-id? id)) id)))
@@ -120,7 +120,7 @@
                                                           :kixi.user/id)
                                        :test "command-invalid-test" 
                                        :id id}
-                                      {:partition-key ""})))))
+                                      {:partition-key id})))))
   (testing "Validated command type to event type conditions are applied"
     (let [result (atom [])
           id (str (java.util.UUID/randomUUID))]
@@ -135,7 +135,7 @@
                                   :kixi/user user 
                                   :test "validated-command-type-condition-applied" 
                                   :id id}
-                                 {:partition-key ""})
+                                 {:partition-key id})
       (is (wait-for-atom
            result *wait-tries* *wait-per-try*
            (contains-command-id? id)) id))))
@@ -153,7 +153,7 @@
   (testing "Validated event send"
     (let [result (atom [])
           id (str (java.util.UUID/randomUUID))]
-      (comms/attach-validating-event-handler! component :component-b :test/vfoo-b "1.0.0" (partial swap-conj-as-cmd! result))
+      (comms/attach-validating-event-handler! component :component-b :test/vfoo-b "1.0.0" (partial swap-conj! result))
       (comms/send-valid-event! component 
                                {:kixi.message/type :event
                                 ::event/type :test/vfoo-b
@@ -162,7 +162,7 @@
                                 :kixi/user user
                                 :test "event-validating-roundtrip-test"
                                 :id id}
-                               {:partition-key ""})
+                               {:partition-key id})
       (is (wait-for-atom
            result *wait-tries* *wait-per-try*
            (contains-event-id? id)) id)))
@@ -178,7 +178,7 @@
                                      :kixi/user user
                                      :test "event-invalid-roundtrip-test"
                                      :id id}
-                                    {:partition-key ""}))))))
+                                    {:partition-key id}))))))
 
 (defn only-correct-handler-gets-message
   [component opts]
