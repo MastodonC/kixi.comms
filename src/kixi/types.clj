@@ -4,7 +4,6 @@
             [clojure.spec.gen :as gen]
             [clojure.test.check.generators :as tgen]))
 
-
 (defn -regex?
   [rs]
   (fn [x]

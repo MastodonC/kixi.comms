@@ -40,6 +40,8 @@
 
 (sh/alias 'command 'kixi.command)
 (sh/alias 'msg 'kixi.message)
+(sh/alias 'event 'kixi.event)
+
 
 (defmulti command-payload (juxt ::command/type
                                 ::command/version))
@@ -58,7 +60,8 @@
                           ::command/id
                           ::command/type
                           ::command/version
-                          :kixi/user]))
+                          :kixi/user]
+                    :opt [::event/id]))
    #(= :command (::msg/type %))))
 
 (s/def ::command/options
@@ -68,7 +71,8 @@
   [impl command opts]
   (let [cmd-with-id (assoc command ::command/id 
                            (or (::command/id command)
-                               (str (java.util.UUID/randomUUID))))]
+                               (str (java.util.UUID/randomUUID)))
+                           :kixi.message/type :command)]
     (when-not (s/valid? :kixi/command cmd-with-id)
       (throw (ex-info "Invalid command" (s/explain-data :kixi/command cmd-with-id))))
     (when-not (s/valid? ::command/options opts)
@@ -76,8 +80,6 @@
     (-send-command! impl
                     cmd-with-id
                     opts)))
-
-(sh/alias 'event 'kixi.event)
 
 (defmulti event-payload (juxt ::event/type
                               ::event/version))
@@ -111,3 +113,11 @@
   (-send-event! impl
                 event
                 opts))
+
+(defmulti command-type->event-types
+  "Services must define the relationship between a command type and a set of event types it can result in"
+  (juxt ::command/type ::command/version))
+
+(defmulti event-type->command-types
+  "Event handlers may emmit commands, such relationships must be defined"
+  (juxt ::event/type ::event/version))

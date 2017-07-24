@@ -47,6 +47,28 @@
   (s/keys :req-un [::test
                    ::id]))
 
+(defmethod kixi.comms/command-type->event-types
+  [:test/vfoo "1.0.0"]
+  [_]
+  #{[:test/vfoo-event "1.0.0"]})
+
+(defmethod kixi.comms/command-payload
+  [:test/cmd-event-cond "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/event-payload
+  [:test/cmd-event-cond-event "1.0.1"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/command-type->event-types
+  [:test/cmd-event-cond "1.0.0"]
+  [_]
+  #{[:test/cmd-event-cond-event "1.0.0"]})
+
 (defmethod kixi.comms/event-payload
   [:test/vfoo-b "1.0.0"]
   [_]
@@ -73,7 +95,7 @@
   (testing "Validated command send"
     (let [result (atom [])
           id (str (java.util.UUID/randomUUID))]
-      (comms/attach-validating-command-handler! component :component-a :test/vfoo "1.0.0"
+      (comms/attach-validating-command-handler! component :component-aa :test/vfoo "1.0.0"
                                                 (partial swap-conj-as-event! result))
       (comms/send-valid-command! component 
                                  {:kixi.message/type :command
@@ -98,7 +120,25 @@
                                                           :kixi.user/id)
                                        :test "command-invalid-test" 
                                        :id id}
-                                      {:partition-key ""}))))))
+                                      {:partition-key ""})))))
+  (testing "Validated command type to event type conditions are applied"
+    (let [result (atom [])
+          id (str (java.util.UUID/randomUUID))]
+      (comms/attach-validating-command-handler! component :component-aaa :test/cmd-event-cond "1.0.0"
+                                                #(update (swap-conj-as-event! result %)
+                                                         0
+                                                         (fn [e] (assoc e ::event/version "1.0.1"))))
+      (comms/send-valid-command! component 
+                                 {:kixi.message/type :command
+                                  ::command/type :test/cmd-event-cond
+                                  ::command/version "1.0.0"
+                                  :kixi/user user 
+                                  :test "validated-command-type-condition-applied" 
+                                  :id id}
+                                 {:partition-key ""})
+      (is (wait-for-atom
+           result *wait-tries* *wait-per-try*
+           (contains-command-id? id)) id))))
 
 (defn event-roundtrip-test
   [component opts]

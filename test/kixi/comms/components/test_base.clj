@@ -85,12 +85,9 @@
                               (subs 1)
                               (str "-event")
                               (keyword))
-             ::event/version (::command/version cmd)
-             ::msg/type :event}
-            (dissoc cmd
-                    ::command/type
-                    ::command/version
-                    ::msg/type))
+             ::event/version (::command/version cmd)}
+            (select-keys cmd
+                         [:id :test]))
      {:partition-key "1"}]))
 
 (defn event->cmd
@@ -101,12 +98,9 @@
                               (subs 1)
                               (str "-cmd")
                               (keyword))
-           ::command/version (::event/version event)
-           ::msg/type :command}
-          (dissoc event
-                  ::event/type
-                  ::event/version
-                  ::msg/type))
+           ::command/version (::event/version event)}
+          (select-keys event
+                       [:id :test]))
    {:partition-key "1"}])
 
 (defn swap-conj-as-event!

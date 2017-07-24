@@ -1,6 +1,7 @@
 (ns kixi.comms.messages
   (:require [cognitect.transit :as transit]
             [clojure.spec :as s]
+            [com.gfredericks.schpec :as sh]
             [clojure.core.async :as async]
             [taoensso.timbre :as timbre :refer [error info]]
             [kixi.comms.time :as t]
@@ -12,8 +13,10 @@
 (defn process-msg?
   ([msg-type pred]
    (fn [msg]
-     (when (and (= (name msg-type)
-                   (:kixi.comms.message/type msg))
+     (when (and (or (= (name msg-type)
+                       (:kixi.comms.message/type msg))
+                    (= msg-type
+                       (:kixi.message/type msg)))
                 (pred msg))
        msg)))
   ([msg-type event version]
@@ -89,10 +92,46 @@
         (error e (str "Consumer exception processing msg. Msg: " msg))))))
 
 (s/def ::command-result
-  (let [single-result (s/cat :event :kixi/event
+  (let [single-result (s/cat :event map?
                              :opts :kixi.event/options)]
     (s/or :single single-result
           :multi (s/coll-of single-result))))
+
+(sh/alias 'event 'kixi.event)
+(sh/alias 'cmd 'kixi.command)
+
+(defn cmd-result->events
+  [result]
+  (let [conformed-result (apply hash-map (s/conform ::command-result result))]
+    (or (:multi conformed-result)
+        [(:single conformed-result)])))
+
+(defn validate-events
+  [command events]
+  (let [allowed-event-types (comms/command-type->event-types command)]
+    (doseq [{:keys [event]} events]
+      (when-not (allowed-event-types ((juxt ::event/type ::event/version) event))
+        (throw (ex-info "Invalid command result" {:allowed-events-types allowed-event-types
+                                                  :command-type ((juxt ::cmd/type ::cmd/version) command)
+                                                  :returned-event-type ((juxt ::event/type ::event/version) event)})))
+      (when-not (s/valid? :kixi/event event)
+        (throw (ex-info "Invalid event" (s/explain-data :kixi/event event)))))))
+
+(defn uuid
+  []
+   (str (java.util.UUID/randomUUID)))
+
+(defn tag-event
+  [cmd event-opts]
+  (update event-opts
+          :event
+          (fn [event]
+            (merge event
+                   (select-keys cmd
+                                [::cmd/id
+                                 :kixi/user])
+                   {:kixi.message/type :event
+                    ::event/id (uuid)}))))
 
 (defn command-handler
   [comms-component service-cmd-handler]
@@ -102,19 +141,45 @@
     (let [result (service-cmd-handler command)]
       (when-not (s/valid? ::command-result result)
         (throw (ex-info "Invalid command result" (s/explain-data ::command-result result))))
-      (let [conformed-result (apply hash-map (s/conform ::command-result result))]
-        (doseq [{:keys [event opts]} (or (:multi conformed-result)
-                                            [(:single conformed-result)])]
+      (let [events (map (partial tag-event command)
+                        (cmd-result->events result))]
+        (validate-events command events)
+        (doseq [{:keys [event opts]} events]
           (comms/send-valid-event! comms-component
                                    event
                                    opts))))))
 
 (s/def ::event-result
-  (let [single-result (s/cat :cmd :kixi/command
+  (let [single-result (s/cat :cmd map?
                              :opts :kixi.command/options)]
-    (s/or :nil nil?
-          :single single-result
+    (s/or :single single-result
           :multi (s/coll-of single-result))))
+
+(defn validate-commands
+  [event commands]
+  (let [allowed-cmd-types (comms/event-type->command-types event)]
+    (doseq [{:keys [cmd]} commands]
+      (when-not (allowed-cmd-types ((juxt ::cmd/type ::cmd/version) cmd))
+        (throw (ex-info "Invalid event result" {:allowed-command-types allowed-cmd-types
+                                                :event-type ((juxt ::event/type ::event/version) event)
+                                                :returned-command-type ((juxt ::cmd/type ::cmd/version) cmd)})))
+      (when-not (s/valid? :kixi.command cmd)
+        (throw (ex-info "Invalid command" (s/explain-data :kixi.command cmd)))))))
+
+(defn event-result->commands
+  [result]
+  (let [conformed-result (apply hash-map (s/conform ::event-result result))]
+    (or (:multi conformed-result)
+        [(:single conformed-result)])))
+
+(defn tag-command
+  [event command]
+  (merge command
+         (select-keys event
+                      [:kixi/user
+                       ::event/id])
+         {:kixi.message/type :command
+          ::cmd/id (uuid)}))
 
 (defn event-handler
   [comms-component service-event-handler]
@@ -122,14 +187,15 @@
     (when-not (s/valid? :kixi/event event)
       (throw (ex-info "Invalid event" (s/explain-data :kixi/event event))))
     (let [result (service-event-handler event)]
-      (when-not (s/valid? ::event-result result)
-        (throw (ex-info "Invalid event result" (s/explain-data ::event-result result))))
-      (let [conformed-result (apply hash-map (s/conform ::event-result result))]
-        (doseq [{:keys [cmd opts]} (or (:multi conformed-result)
-                                       [(:single conformed-result)])]
-          (comms/send-valid-command! comms-component
-                                     cmd
-                                     opts))))))
+      (when (s/valid? ::event-result result)        
+        (when-let [conformed-result (map (partial tag-command event)
+                                         (event-result->commands result))]
+          (validate-commands conformed-result)
+          (doseq [{:keys [cmd opts]} (or (:multi conformed-result)
+                                         [(:single conformed-result)])]
+            (comms/send-valid-command! comms-component
+                                       cmd
+                                       opts)))))))
 
 (defn clj->transit
   ([m]
@@ -185,3 +251,4 @@
   (let [b (byte-array (.remaining byte-buffer))]
     (.get byte-buffer b)
     (clojure.edn/read-string (String. b))))
+
