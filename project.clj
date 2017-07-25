@@ -19,6 +19,7 @@
                  [org.slf4j/log4j-over-slf4j ~slf4j-version]
                  [org.slf4j/jul-to-slf4j ~slf4j-version]
                  [org.slf4j/jcl-over-slf4j ~slf4j-version]
+                 [org.clojure/test.check "0.9.0"]
                  [environ "1.1.0"]
                  ;; Kafka
                  [mastondonc/franzy "0.0.3" :exclusions [org.slf4j/slf4j-log4j12]]
@@ -29,8 +30,7 @@
                                                   com.fasterxml.jackson.dataformat/jackson-dataformat-cbor]]
                  [byte-streams "0.2.2"]]
   :target-path "target/%s"
-  :profiles {:uberjar {:aot :all}
-             :dev {:dependencies [[org.clojure/test.check "0.9.0"]]}}
+  :profiles {:uberjar {:aot :all}}
   :repositories [["releases" {:url "https://clojars.org/repo"
                               :creds :gpg}]
                  ["snapshots" {:url "https://clojars.org/repo"

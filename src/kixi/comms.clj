@@ -1,7 +1,10 @@
 (ns kixi.comms
   (:require [clojure.spec :as s]
             [com.gfredericks.schpec :as sh]
-            [kixi.data-types :as t]))
+            [clj-time.core :as time]
+            [clj-time.format :as tf]
+            [kixi.data-types :as t]
+            [kixi.types :as types]))
 
 (def ^:dynamic *verbose-logging* false)
 
@@ -42,6 +45,16 @@
 (sh/alias 'msg 'kixi.message)
 (sh/alias 'event 'kixi.event)
 
+(defn timestamp
+  [] 
+  (tf/unparse
+   types/formatter
+   (time/now)))
+
+(defn uuid
+  []
+  (str (java.util.UUID/randomUUID)))
+
 
 (defmulti command-payload 
   "Implementers must provide a s/keys definition for their command keys"
@@ -62,6 +75,7 @@
                           ::command/id
                           ::command/type
                           ::command/version
+                          ::command/created-at
                           :kixi/user]
                     :opt [::event/id]))
    #(= :command (::msg/type %))))
@@ -73,8 +87,9 @@
   [impl command opts]
   (let [cmd-with-id (assoc command ::command/id 
                            (or (::command/id command)
-                               (str (java.util.UUID/randomUUID)))
-                           :kixi.message/type :command)]
+                               (uuid))
+                           :kixi.message/type :command
+                           ::command/created-at (timestamp))]
     (when-not (s/valid? :kixi/command cmd-with-id)
       (throw (ex-info "Invalid command" (s/explain-data :kixi/command cmd-with-id))))
     (when-not (s/valid? ::command/options opts)
@@ -101,6 +116,8 @@
             (s/keys :req [::msg/type
                           ::event/type
                           ::event/version
+                          ::event/created-at
+                          ::event/id
                           ::command/id
                           :kixi/user]))
    #(= :event (::msg/type %))))
@@ -110,18 +127,21 @@
 
 (defn send-valid-event!
   [impl event opts]
-  (when-not (s/valid? :kixi/event event)
-    (throw (ex-info "Invalid event" (s/explain-data :kixi/event event))))
-  (when-not (s/valid? ::event/options opts)
-    (throw (ex-info "Invalid event options" (s/explain-data ::event/options opts))))
-  (-send-event! impl
-                event
-                opts))
+  (let [event-extra (merge {::event/id (uuid)}
+                           event
+                           {::event/created-at (timestamp)})]
+    (when-not (s/valid? :kixi/event event-extra)
+      (throw (ex-info "Invalid event-extra" (s/explain-data :kixi/event event-extra))))
+    (when-not (s/valid? ::event/options opts)
+      (throw (ex-info "Invalid event-extra options" (s/explain-data ::event/options opts))))
+    (-send-event! impl
+                  event-extra
+                  opts)))
 
 (defmulti command-type->event-types
-  "Services must define the relationship between a command type and a set of event types it can result in"
+  "Services must define the relationship between a command type and a set of event-extra types it can result in"
   (juxt ::command/type ::command/version))
 
 (defmulti event-type->command-types
-  "Event handlers may emmit commands, such relationships must be defined"
+  "Event-Extra handlers may emmit commands, such relationships must be defined"
   (juxt ::event/type ::event/version))
