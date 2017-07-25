@@ -51,6 +51,10 @@
    types/formatter
    (time/now)))
 
+(defn uuid
+  []
+  (str (java.util.UUID/randomUUID)))
+
 
 (defmulti command-payload 
   "Implementers must provide a s/keys definition for their command keys"
@@ -83,7 +87,7 @@
   [impl command opts]
   (let [cmd-with-id (assoc command ::command/id 
                            (or (::command/id command)
-                               (str (java.util.UUID/randomUUID)))
+                               (uuid))
                            :kixi.message/type :command
                            ::command/created-at (timestamp))]
     (when-not (s/valid? :kixi/command cmd-with-id)
@@ -113,6 +117,7 @@
                           ::event/type
                           ::event/version
                           ::event/created-at
+                          ::event/id
                           ::command/id
                           :kixi/user]))
    #(= :event (::msg/type %))))
@@ -122,7 +127,8 @@
 
 (defn send-valid-event!
   [impl event opts]
-  (let [event-extra (merge event
+  (let [event-extra (merge {::event/id (uuid)}
+                           event
                            {::event/created-at (timestamp)})]
     (when-not (s/valid? :kixi/event event-extra)
       (throw (ex-info "Invalid event-extra" (s/explain-data :kixi/event event-extra))))
