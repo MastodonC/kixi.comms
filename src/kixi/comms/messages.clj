@@ -133,7 +133,8 @@
                                 [::cmd/id
                                  :kixi/user])
                    {:kixi.message/type :event
-                    ::event/id (uuid)}))))
+                    ::event/id (uuid)
+                    ::event/created-at (comms/timestamp)}))))
 
 (defn command-handler
   [comms-component service-cmd-handler]

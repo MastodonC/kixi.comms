@@ -15,8 +15,13 @@
 (sh/alias 'command 'kixi.command)
 
 (s/def ::command/id t/uuid)
+(s/def ::command/created-at t/timestamp)
+
+(sh/alias 'event 'kixi.event)
+(s/def ::event/created-at t/timestamp)
 
 (sh/alias 'msg 'kixi.message)
 
 (s/def ::msg/type
   #{:command :event})
+
