@@ -21,8 +21,14 @@
     (s/conformer uuid?)
     #(tgen/no-shrink (gen/fmap str (gen/uuid)))))
 
+
+(def format :basic-date-time)
+
+(def formatter
+  (tf/formatters format))
+
 (def time-parser   
-  (partial tf/parse tf/formatter))
+  (partial tf/parse formatter))
 
 (defn timestamp?
   [x]

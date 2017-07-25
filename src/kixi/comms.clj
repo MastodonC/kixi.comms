@@ -3,7 +3,8 @@
             [com.gfredericks.schpec :as sh]
             [clj-time.core :as time]
             [clj-time.format :as tf]
-            [kixi.data-types :as t]))
+            [kixi.data-types :as t]
+            [kixi.types :as types]))
 
 (def ^:dynamic *verbose-logging* false)
 
@@ -44,16 +45,10 @@
 (sh/alias 'msg 'kixi.message)
 (sh/alias 'event 'kixi.event)
 
-(def format :basic-date-time)
-
-(def formatter
-  (tf/formatters format))
-
-
 (defn timestamp
   [] 
   (tf/unparse
-   formatter
+   types/formatter
    (time/now)))
 
 
@@ -129,7 +124,7 @@
   [impl event opts]
   (let [event-extra (merge event
                            {::event/created-at (timestamp)})]
-    (when-not (s/valid? :kixi/event- event-extra)
+    (when-not (s/valid? :kixi/event event-extra)
       (throw (ex-info "Invalid event-extra" (s/explain-data :kixi/event event-extra))))
     (when-not (s/valid? ::event/options opts)
       (throw (ex-info "Invalid event-extra options" (s/explain-data ::event/options opts))))
@@ -137,10 +132,10 @@
                   event-extra
                   opts)))
 
-(defmulti command-type->event-extra-types
+(defmulti command-type->event-types
   "Services must define the relationship between a command type and a set of event-extra types it can result in"
   (juxt ::command/type ::command/version))
 
-(defmulti event-extra-type->command-types
+(defmulti event-type->command-types
   "Event-Extra handlers may emmit commands, such relationships must be defined"
   (juxt ::event/type ::event/version))
