@@ -175,8 +175,8 @@
               :event-type [:event-test "1.0.0"]
               :returned-command-type [:un-regd "1.0.0"]})))
     (let [ex (exception-from #(validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                                   [[{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (uuid)}]
-                                                                    [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (uuid)}]]))]
+                                                                  [[{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (uuid)}]
+                                                                   [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (uuid)}]]))]
       (is (= (ex-data ex)
              {:allowed-command-types #{[:cmd-test2 "1.0.0"] [:cmd-test "1.0.0"]},
               :event-type [:event-test "1.0.0"],
