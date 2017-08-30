@@ -2,8 +2,8 @@
   (:require [kixi.comms.messages :refer :all :exclude [uuid]]
             [kixi.comms :as comms]
             [kixi.comms.components.test-base :refer :all]
+            [clojure.spec.alpha :as s]
             [clojure
-             [spec :as s]
              [test :refer :all]]
             [com.gfredericks.schpec :as sh]))
 

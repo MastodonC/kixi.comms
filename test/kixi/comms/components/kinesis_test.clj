@@ -1,7 +1,7 @@
 (ns kixi.comms.components.kinesis-test
   (:require [kixi.comms.components.kinesis :refer :all]
+            [clojure.spec.alpha :as s]
             [clojure
-             [spec :as s]
              [test :refer :all]]
             [com.stuartsierra.component :as component]
             [taoensso.timbre :as timbre :refer [error info]]

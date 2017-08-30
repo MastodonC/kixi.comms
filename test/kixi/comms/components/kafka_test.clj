@@ -1,7 +1,7 @@
 (ns kixi.comms.components.kafka-test
   (:require [clojure
-             [spec :as s]
              [test :refer :all]]
+            [clojure.spec.alpha :as s]
             [com.stuartsierra.component :as component]
             [kixi.comms.schema]
             [kixi.comms :as comms]

@@ -19,11 +19,11 @@
   [ms]
   (Thread/sleep ms))
 
-(defn uuid []
+(defn new-uuid []
   (str (java.util.UUID/randomUUID)))
 
-(def user {:kixi.user/id (uuid)
-           :kixi.user/groups [(uuid)]})
+(def user {:kixi.user/id (new-uuid)
+           :kixi.user/groups [(new-uuid)]})
 
 (defn cycle-system-fixture
   [system-func system-atom]

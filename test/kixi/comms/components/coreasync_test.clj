@@ -1,8 +1,8 @@
 (ns kixi.comms.components.coreasync-test
   (:require [kixi.comms.components.coreasync :refer :all]
             [clojure.test :as t]
+            [clojure.spec.alpha :as s]
             [clojure
-             [spec :as s]
              [test :refer :all]]
             [com.stuartsierra.component :as component]
             [taoensso.timbre :as timbre :refer [error info]]
@@ -28,8 +28,8 @@
              (component/system-map
               :coreasync
               (map->CoreAsync {:profile profile
-                              :app app-name                               
-                              :metric-level :NONE}))))))
+                               :app app-name
+                               :metric-level :NONE}))))))
 
 (defn cycle-system-fixture*
   [system-func system-atom]
@@ -92,5 +92,3 @@
 (deftest coreasync-infinite-loop-defended
   (binding [*wait-per-try* long-wait]
     (all-tests/infinite-loop-defended (:coreasync @system) opts)))
-
-

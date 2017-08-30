@@ -4,10 +4,10 @@
   :url "https://github.com/MastodonC/kixi.comms"
   :license {:name "Eclipse Public License"
             :url "http://www.eclipse.org/legal/epl-v10.html"}
-  :dependencies [[org.clojure/clojure "1.9.0-alpha14"]
+  :dependencies [[org.clojure/clojure "1.9.0-alpha17"]
                  [org.clojure/core.async "0.3.443"]
                  [com.cognitect/transit-clj "0.8.290"]
-                 [com.gfredericks/schpec "0.1.1"]
+                 [com.gfredericks/schpec "0.1.2"]
                  [com.taoensso/encore "2.89.0"]
                  [com.stuartsierra/component "0.3.1"]
                  [com.fzakaria/slf4j-timbre "0.3.2"]
