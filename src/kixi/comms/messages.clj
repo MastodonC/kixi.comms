@@ -166,8 +166,8 @@
         (throw (ex-info "Invalid event result" {:allowed-command-types allowed-cmd-types
                                                 :event-type ((juxt ::event/type ::event/version) event)
                                                 :returned-command-type ((juxt ::cmd/type ::cmd/version) cmd)})))
-      (when-not (s/valid? :kixi.command cmd)
-        (throw (ex-info "Invalid command" (s/explain-data :kixi.command cmd)))))))
+      (when-not (s/valid? :kixi/command cmd)
+        (throw (ex-info "Invalid command" (s/explain-data :kixi/command cmd)))))))
 
 (defn event-result->commands
   [result]
@@ -176,15 +176,17 @@
         [(:single conformed-result)])))
 
 (defn tag-command
-  [event command]
-  (when command
-    (merge command
-           (select-keys event
-                        [:kixi/user
-                         ::event/id])
-           {:kixi.message/type :command
-            ::cmd/id (uuid)
-            ::cmd/created-at (comms/timestamp)})))
+  [event command+opts]
+  (update command+opts
+          :cmd
+          (fn [command]
+            (merge command
+                   (select-keys event
+                                [:kixi/user
+                                 ::event/id])
+                   {:kixi.message/type :command
+                    ::cmd/id (uuid)
+                    ::cmd/created-at (comms/timestamp)}))))
 
 (defn event-handler
   [comms-component service-event-handler]
@@ -196,8 +198,7 @@
         (when-let [conformed-result (map (partial tag-command event)
                                          (event-result->commands result))]
           (validate-commands event conformed-result)
-          (doseq [{:keys [cmd opts]} (or (:multi conformed-result)
-                                         [(:single conformed-result)])]
+          (doseq [{:keys [cmd opts]} conformed-result]
             (comms/send-valid-command! comms-component
                                        cmd
                                        opts)))))))
