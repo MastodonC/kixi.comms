@@ -48,9 +48,9 @@
                           [this handler]))
                     (constantly events))
    (assoc cmd
-          ::cmd/id (uuid)
-          :kixi/user {:kixi.user/id (uuid)
-                      :kixi.user/groups [(uuid)]}
+          ::cmd/id (new-uuid)
+          :kixi/user {:kixi.user/id (new-uuid)
+                      :kixi.user/groups [(new-uuid)]}
           :kixi.message/type :command
           ::cmd/created-at (comms/timestamp))))
 
@@ -83,11 +83,11 @@
                           [this handler]))
                     (constantly cmds))
    (assoc event
-          ::event/id (uuid)
-          :kixi/user {:kixi.user/id (uuid)
-                      :kixi.user/groups [(uuid)]}
+          ::event/id (new-uuid)
+          :kixi/user {:kixi.user/id (new-uuid)
+                      :kixi.user/groups [(new-uuid)]}
           :kixi.message/type :event
-          ::cmd/id (uuid)
+          ::cmd/id (new-uuid)
           ::event/created-at (comms/timestamp))))
 
 (defn exception-from
@@ -116,22 +116,22 @@
     (s/keys :req []))
   (testing "Finds match"
     (is (nil? (validate-cmd-type->event-types {::cmd/type :cmd-test ::cmd/version "1.0.0"}
-                                              [{::event/type :event-test ::event/version "1.0.0"} {:partition-key (uuid)}])))
+                                              [{::event/type :event-test ::event/version "1.0.0"} {:partition-key (new-uuid)}])))
     (is (nil? (validate-cmd-type->event-types {::cmd/type :cmd-test ::cmd/version "1.0.0"}
-                                              [{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (uuid)}])))
+                                              [{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (new-uuid)}])))
     (is (nil? (validate-cmd-type->event-types {::cmd/type :cmd-test ::cmd/version "1.0.0"}
-                                              [[{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (uuid)}]
-                                               [{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (uuid)}]]))))
+                                              [[{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (new-uuid)}]
+                                               [{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (new-uuid)}]]))))
   (testing "Exception on non match"
     (let [ex (exception-from #(validate-cmd-type->event-types {::cmd/type :cmd-test ::cmd/version "1.0.0"}
-                                                              [{::event/type :un-regd ::event/version "1.0.0"} {:partition-key (uuid)}]))]
+                                                              [{::event/type :un-regd ::event/version "1.0.0"} {:partition-key (new-uuid)}]))]
       (is (= (ex-data ex)
              {:allowed-events-types #{[:event-test2 "1.0.0"] [:event-test "1.0.0"]}
               :command-type [:cmd-test "1.0.0"]
               :returned-event-type [:un-regd "1.0.0"]})))
     (let  [ex (exception-from #(validate-cmd-type->event-types {::cmd/type :cmd-test ::cmd/version "1.0.0"}
-                                                               [[{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (uuid)}]
-                                                                [{::event/type :un-regd ::event/version "1.0.0"} {:partition-key (uuid)}]]))]
+                                                               [[{::event/type :event-test2 ::event/version "1.0.0"} {:partition-key (new-uuid)}]
+                                                                [{::event/type :un-regd ::event/version "1.0.0"} {:partition-key (new-uuid)}]]))]
       (is (= (ex-data ex)
              {:allowed-events-types #{[:event-test2 "1.0.0"] [:event-test "1.0.0"]}
               :command-type [:cmd-test "1.0.0"]
@@ -161,22 +161,22 @@
     (s/keys :req []))
   (testing "Finds match"
     (is (nil? (validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                  [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (uuid)}])))
+                                                  [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (new-uuid)}])))
     (is (nil? (validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                  [{::cmd/type :cmd-test2 ::cmd/version "1.0.0"} {:partition-key (uuid)}])))
+                                                  [{::cmd/type :cmd-test2 ::cmd/version "1.0.0"} {:partition-key (new-uuid)}])))
     (is (nil? (validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                  [[{::cmd/type :cmd-test2 ::cmd/version "1.0.0"} {:partition-key (uuid)}]
-                                                   [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (uuid)}]]))))
+                                                  [[{::cmd/type :cmd-test2 ::cmd/version "1.0.0"} {:partition-key (new-uuid)}]
+                                                   [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (new-uuid)}]]))))
   (testing "Exception on non match"
     (let [ex (exception-from #(validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                                  [{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (uuid)}]))]
+                                                                  [{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (new-uuid)}]))]
       (is (= (ex-data ex)
              {:allowed-command-types #{[:cmd-test2 "1.0.0"] [:cmd-test "1.0.0"]}
               :event-type [:event-test "1.0.0"]
               :returned-command-type [:un-regd "1.0.0"]})))
     (let [ex (exception-from #(validate-event-type->command-types {::event/type :event-test ::event/version "1.0.0"}
-                                                                  [[{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (uuid)}]
-                                                                   [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (uuid)}]]))]
+                                                                  [[{::cmd/type :un-regd ::cmd/version "1.0.0"} {:partition-key (new-uuid)}]
+                                                                   [{::cmd/type :cmd-test ::cmd/version "1.0.0"} {:partition-key (new-uuid)}]]))]
       (is (= (ex-data ex)
              {:allowed-command-types #{[:cmd-test2 "1.0.0"] [:cmd-test "1.0.0"]},
               :event-type [:event-test "1.0.0"],
