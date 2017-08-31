@@ -85,9 +85,9 @@
 
 (defn send-valid-command!
   [impl command opts]
-  (let [cmd-with-id (assoc command ::command/id 
-                           (or (::command/id command)
-                               (uuid))
+  (let [cmd-with-id (assoc command
+                           ::command/id (or (::command/id command)
+                                            (uuid))
                            :kixi.message/type :command
                            ::command/created-at (timestamp))]
     (when-not (s/valid? :kixi/command cmd-with-id)

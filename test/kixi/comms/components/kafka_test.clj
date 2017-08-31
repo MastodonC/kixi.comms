@@ -6,7 +6,7 @@
             [kixi.comms.schema]
             [kixi.comms :as comms]
             [kixi.comms.components.kafka :refer :all]
-            [kixi.comms.messages :refer :all]
+            [kixi.comms.messages :refer :all :exclude [uuid]]
             [kixi.comms.components.test-base :refer :all]
             [kixi.comms.components.all-component-tests :as all-tests]))
 
