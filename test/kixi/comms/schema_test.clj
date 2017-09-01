@@ -2,7 +2,7 @@
   (:require [clojure.test :refer :all]
             [kixi.comms.schema :refer :all]
             [kixi.comms.time :as t]
-            [clojure.spec :as s]))
+            [clojure.spec.alpha :as s]))
 
 (defn uuid
   []
@@ -51,7 +51,7 @@
              :kixi.comms.command/id   (uuid)
              :kixi.comms.command/created-at (t/timestamp)
              :kixi.comms.command/payload {}}]
-    (is (not (= :clojure.spec/invalid (s/conform :kixi.comms.message/message msg)))
+    (is (not (= ::s/invalid (s/conform :kixi.comms.message/message msg)))
         (pr-str (s/explain-data :kixi.comms.message/message msg)))))
 
 (deftest message-fail-test
@@ -61,4 +61,4 @@
              :kixi.comms.command/id   (uuid)
              :kixi.comms.command/created-at (t/timestamp)
              :kixi.comms.command/payload {}}]
-    (is (= :clojure.spec/invalid (s/conform :kixi.comms.message/message msg)))))
+    (is (= ::s/invalid (s/conform :kixi.comms.message/message msg)))))

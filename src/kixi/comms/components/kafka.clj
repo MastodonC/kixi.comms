@@ -1,6 +1,6 @@
 (ns kixi.comms.components.kafka
   (:require [cheshire.core :refer [parse-string]]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [clojure.core.async :as async]
             [com.stuartsierra.component :as component]
             [franzy.clients.consumer

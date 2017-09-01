@@ -1,5 +1,5 @@
 (ns kixi.comms
-  (:require [clojure.spec :as s]
+  (:require [clojure.spec.alpha :as s]
             [com.gfredericks.schpec :as sh]
             [clj-time.core :as time]
             [clj-time.format :as tf]
@@ -46,7 +46,7 @@
 (sh/alias 'event 'kixi.event)
 
 (defn timestamp
-  [] 
+  []
   (tf/unparse
    types/formatter
    (time/now)))
@@ -56,7 +56,7 @@
   (str (java.util.UUID/randomUUID)))
 
 
-(defmulti command-payload 
+(defmulti command-payload
   "Implementers must provide a s/keys definition for their command keys"
   (juxt ::command/type
         ::command/version))
@@ -69,7 +69,7 @@
                          ::command/version (second dispatch-val)))))
 
 (s/def :kixi/command
-  (s/and 
+  (s/and
    (s/merge ::command/payload
             (s/keys :req [::msg/type
                           ::command/id
@@ -85,9 +85,9 @@
 
 (defn send-valid-command!
   [impl command opts]
-  (let [cmd-with-id (assoc command
-                           ::command/id (or (::command/id command)
-                                            (uuid))
+  (let [cmd-with-id (assoc command ::command/id
+                           (or (::command/id command)
+                               (uuid))
                            :kixi.message/type :command
                            ::command/created-at (timestamp))]
     (when-not (s/valid? :kixi/command cmd-with-id)

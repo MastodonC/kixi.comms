@@ -1,5 +1,5 @@
 (ns kixi.data-types
-  (:require [clojure.spec :as s]
+  (:require [clojure.spec.alpha :as s]
             [com.gfredericks.schpec :as sh]
             [kixi.types :as t]))
 
@@ -24,4 +24,3 @@
 
 (s/def ::msg/type
   #{:command :event})
-

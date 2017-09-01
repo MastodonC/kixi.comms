@@ -1,5 +1,5 @@
 (ns kixi.comms.schema
-  (:require [clojure.spec    :as s]
+  (:require [clojure.spec.alpha :as s]
             [kixi.comms.time :as t]))
 
 (defn xor
@@ -21,7 +21,7 @@
   (cond
     (clojure.core/keyword? x) x
     (clojure.core/string? x) (clojure.core/keyword x)
-    :else :clojure.spec/invalid))
+    :else ::s/invalid))
 
 (def kixi-keyword?
   (s/conformer -keyword?))

@@ -1,6 +1,6 @@
 (ns kixi.comms.messages
   (:require [cognitect.transit :as transit]
-            [clojure.spec :as s]
+            [clojure.spec.alpha :as s]
             [com.gfredericks.schpec :as sh]
             [clojure.core.async :as async]
             [taoensso.timbre :as timbre :refer [error info]]
@@ -194,7 +194,7 @@
     (when-not (s/valid? :kixi/event event)
       (throw (ex-info "Invalid event" (s/explain-data :kixi/event event))))
     (let [result (service-event-handler event)]
-      (when (s/valid? ::event-result result)        
+      (when (s/valid? ::event-result result)
         (when-let [conformed-result (map (partial tag-command event)
                                          (event-result->commands result))]
           (validate-commands event conformed-result)
@@ -257,4 +257,3 @@
   (let [b (byte-array (.remaining byte-buffer))]
     (.get byte-buffer b)
     (clojure.edn/read-string (String. b))))
-
