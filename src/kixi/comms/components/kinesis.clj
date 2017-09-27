@@ -19,49 +19,49 @@
            (clojure.string/replace #"\/" "_"))))
 
 (defn list-streams
-  [endpoint]
-  (kinesis/list-streams {:endpoint endpoint}))
+  [conn]
+  (kinesis/list-streams conn))
 
 (defn get-stream-status
-  [endpoint stream-name]
-  (get-in (kinesis/describe-stream {:endpoint endpoint} stream-name)
+  [conn stream-name]
+  (get-in (kinesis/describe-stream conn stream-name)
           [:stream-description :stream-status]))
 
 (defn create-streams!
-  [endpoint streams]
-  (let [{:keys [stream-names]} (list-streams endpoint)
+  [conn streams]
+  (let [{:keys [stream-names]} (list-streams conn)
         missing-streams (remove (set stream-names) streams)
         shards 2]
     (doseq [stream-name missing-streams]
       (info "Creating stream" stream-name "with" shards "shard(s)!")
-      (kinesis/create-stream {:endpoint endpoint} stream-name shards))
+      (kinesis/create-stream conn stream-name shards))
     (doseq [stream-name missing-streams]
       (loop [n 0
-             status (get-stream-status endpoint stream-name)]
+             status (get-stream-status conn stream-name)]
         (when (not (= "ACTIVE" status))
           (if (< n 50)
             (do
               (info "Waiting for" stream-name "status to be ACTIVE:" status)
               (Thread/sleep 500)
-              (recur (inc n) (get-stream-status endpoint stream-name)))
+              (recur (inc n) (get-stream-status conn stream-name)))
             (throw (Exception. (str "Failed to create stream " stream-name)))))))))
 
 (defn stream-exists
-  [endpoint stream]
+  [conn stream]
   (try
-    (kinesis/describe-stream {:endpoint endpoint} stream)
+    (kinesis/describe-stream conn stream)
     true
     (catch Exception e
       false)))
 
 (defn delete-streams!
-  [endpoint streams]
+  [conn streams]
   (doseq [stream-name streams]
-    (kinesis/delete-stream {:endpoint endpoint} stream-name))
+    (kinesis/delete-stream conn stream-name))
   (doseq [stream-name streams]
     (loop []
       (info "Waiting for" stream-name " to be deleted")
-      (when (stream-exists endpoint stream-name)
+      (when (stream-exists conn stream-name)
         (Thread/sleep 100)
         (recur)))))
 
@@ -121,7 +121,7 @@
     (deref f)))
 
 (defn old-format-putter
-  [endpoint stream-names origin msg]
+  [conn stream-names origin msg]
   (let [[stream-name-key _ _ _ _ opts] msg
         stream-name (get stream-names stream-name-key)
         formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
@@ -132,19 +132,19 @@
         cmd-id (:kixi.comms.command/id opts)]
     (when comms/*verbose-logging*
       (info "Sending msg to Kinesis stream" stream-name ":" formatted))
-    (kinesis/put-record {:endpoint endpoint}
+    (kinesis/put-record conn
                         stream-name
                         formatted
                         partition-key
                         (some-> seq-num str))))
 
 (defn new-format-putter
-  [endpoint stream-names origin [stream-name-key msg opts]]
+  [conn stream-names origin [stream-name-key msg opts]]
   (let [stream-name (get stream-names stream-name-key)
         seq-num (:seq-num opts)]
     (when comms/*verbose-logging*
       (info "Sending msg to Kinesis stream" stream-name ":" msg))
-    (kinesis/put-record {:endpoint endpoint}
+    (kinesis/put-record conn
                         stream-name
                         (assoc msg
                                :kixi.message/origin origin)
@@ -152,14 +152,14 @@
                         (some-> seq-num str))))
 
 (defn create-producer
-  [endpoint stream-names origin in-chan]
+  [conn stream-names origin in-chan]
   (async/go
     (loop []
       (let [msg (async/<! in-chan)]
         (when msg
           (if (= 3 (count msg))
-            (new-format-putter endpoint stream-names origin msg)
-            (old-format-putter endpoint stream-names origin msg))
+            (new-format-putter conn stream-names origin msg)
+            (old-format-putter conn stream-names origin msg))
           (recur))))))
 
 (defn attach-generic-processing-switch
@@ -304,15 +304,18 @@
                                    (catch Throwable _ "<unknown>")))
             producer-chan      (async/chan)
             id->handle-msg-and-process-msg-atom (atom {})
-            id->command-handle-msg-and-process-msg-atom (atom {})]
+            id->command-handle-msg-and-process-msg-atom (atom {})
+            conn {:endpoint endpoint
+                  :region region-name}]
         (info "Starting Kinesis Producer/Consumer")
-        (create-streams! endpoint (vals streams))
-        (create-producer endpoint streams origin producer-chan)
+        (create-streams! conn (vals streams))
+        (create-producer conn streams origin producer-chan)
         (merge
          (assoc component
                 :streams streams
                 :origin origin
-                :producer-in-ch producer-chan)
+                :producer-in-ch producer-chan
+                :conn conn)
          (when (:event streams)
            {:id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
             :generic-event-worker (attach-generic-processing-switch
