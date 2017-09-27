@@ -1,4 +1,5 @@
 (ns kixi.comms.components.kafka-test
+  {:kafka true}
   (:require [clojure
              [test :refer :all]]
             [clojure.spec.alpha :as s]
