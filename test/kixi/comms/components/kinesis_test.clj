@@ -59,7 +59,9 @@
       (clear-tables test-dynamodb dynamodb-table-names)
 
       (info "Deleting streams...")
-      (delete-streams! test-kinesis (vals test-stream-names))
+      (delete-streams! {:endpoint test-kinesis
+                        :region test-region} 
+                       (vals test-stream-names))
 
       (info "Finished"))))
 
