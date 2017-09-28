@@ -306,7 +306,7 @@
             id->handle-msg-and-process-msg-atom (atom {})
             id->command-handle-msg-and-process-msg-atom (atom {})
             conn {:endpoint endpoint
-                  :region region-name}]
+                  :region-name region-name}]
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! conn (vals streams))
         (create-producer conn streams origin producer-chan)
