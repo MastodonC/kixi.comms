@@ -60,7 +60,7 @@
 
       (info "Deleting streams...")
       (delete-streams! {:endpoint test-kinesis
-                        :region test-region} 
+                        :region-name test-region}
                        (vals test-stream-names))
 
       (info "Finished"))))
