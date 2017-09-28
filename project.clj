@@ -24,7 +24,7 @@
                  [mastondonc/franzy "0.0.3" :exclusions [org.slf4j/slf4j-log4j12]]
                  [zookeeper-clj "0.9.4" :exclusions [org.slf4j/slf4j-log4j12 log4j]]
                  ;; Kinesis
-                 [amazonica "0.3.112" :exclusions [com.taoensso/encore
+                 [amazonica "0.3.92" :exclusions [com.taoensso/encore
                                                   com.fasterxml.jackson.core/jackson-core
                                                   com.fasterxml.jackson.dataformat/jackson-dataformat-cbor]]
                  [byte-streams "0.2.3"]]
