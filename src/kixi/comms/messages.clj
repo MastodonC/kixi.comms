@@ -139,8 +139,6 @@
 (defn command-handler
   [comms-component service-cmd-handler]
   (fn [command]
-    (when-not (s/valid? :kixi/command command)
-      (throw (ex-info "Invalid command" (s/explain-data :kixi/command command))))
     (let [result (service-cmd-handler command)]
       (when-not (s/valid? ::command-result result)
         (throw (ex-info "Invalid command result" (s/explain-data ::command-result result))))
