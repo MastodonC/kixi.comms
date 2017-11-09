@@ -65,7 +65,8 @@
                              (keyword))
    :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
                                  (:kixi.comms.event/version cmd))
-   :kixi.comms.event/payload cmd})
+   :kixi.comms.event/payload cmd
+   :kixi.comms.event/partition-key "0"})
 
 (defn cmd->event
   [cmd]
@@ -78,7 +79,8 @@
                                (keyword))
      :kixi.comms.event/version (or (:kixi.comms.command/version cmd)
                                    (:kixi.comms.event/version cmd))
-     :kixi.comms.event/payload cmd}
+     :kixi.comms.event/payload cmd
+     :kixi.comms.event/partition-key "0"}
     [(merge {::event/type (-> cmd
                               ::command/type
                               (str)

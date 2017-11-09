@@ -70,18 +70,21 @@
   [comms-component msg-type original result]
   (when (or (= msg-type :command) result)
     (if-not (s/valid? ::ks/event-result result)
-      (throw (Exception. (str "Handler must return a valid event result: "
+       (throw (Exception. (str "Handler must return a valid event result: "
                               (s/explain-data ::ks/event-result result))))
       (letfn [(send-event-fn! [{:keys [kixi.comms.event/key
                                        kixi.comms.event/version
                                        kixi.comms.event/partition-key
                                        kixi.comms.event/payload] :as f}]
-                (comms/send-event! comms-component key version payload
-                                   (merge
-                                    {:kixi.comms.command/id (:kixi.comms.command/id original)
-                                     :seq-num (:seq-num f)}
-                                    (when partition-key
-                                      {:kixi.comms.event/partition-key partition-key}))))]
+                (if-not partition-key
+                  (throw (ex-info "Handler must return an explicit partition key"
+                                  f))
+                  (comms/send-event! comms-component key version payload
+                                     (merge
+                                      {:kixi.comms.command/id (:kixi.comms.command/id original)
+                                       :seq-num (:seq-num f)}
+                                      (when partition-key
+                                        {:kixi.comms.event/partition-key partition-key})))))]
         (->> result
              vec-if-not
              (remove (unsafe-event original))

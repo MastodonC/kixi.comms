@@ -126,12 +126,14 @@
         stream-name (get stream-names stream-name-key)
         formatted (apply msg/format-message (conj (vec (butlast msg)) (assoc opts :origin origin)))
         partition-key (or (:kixi.comms.event/partition-key opts)
-                          (:kixi.comms.command/partition-key opts)
-                          (str (java.util.UUID/randomUUID)))
+                          (:kixi.comms.command/partition-key opts))
         seq-num (:seq-num opts)
         cmd-id (:kixi.comms.command/id opts)]
     (when comms/*verbose-logging*
       (info "Sending msg to Kinesis stream" stream-name ":" formatted))
+    (when-not partition-key
+      (throw (ex-info "Partition key must be specified" {:event formatted
+                                                         :opts opts})))
     (kinesis/put-record conn
                         stream-name
                         formatted
@@ -199,7 +201,7 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:event event version nil payload opts])))
 
-  (-send-event! [{:keys [producer-in-ch]} event opts]    
+  (-send-event! [{:keys [producer-in-ch]} event opts]
     (when producer-in-ch
       (debug "# Putting event: " event)
       (async/put! producer-in-ch [:event event opts])))
