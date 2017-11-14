@@ -194,8 +194,6 @@
                     producer-in-chan id->handle-msg-and-process-msg-atom
                     id->command-handle-msg-and-process-msg-atom]
   comms/Communications
-  (send-event! [comms event version payload]
-    (comms/send-event! comms event version payload {}))
 
   (send-event! [{:keys [producer-in-ch]} event version payload opts]
     (when producer-in-ch
@@ -205,9 +203,6 @@
     (when producer-in-ch
       (debug "# Putting event: " event)
       (async/put! producer-in-ch [:event event opts])))
-
-  (send-command! [comms command version user payload]
-    (comms/send-command! comms command version user payload {}))
 
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch

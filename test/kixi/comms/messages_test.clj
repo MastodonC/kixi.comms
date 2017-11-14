@@ -23,13 +23,9 @@
   [cmd events]
   ((command-handler (reify comms/Communications
                       (send-event!
-                          [this event version payload])
-                      (send-event!
                           [this event version payload opts])
                       (-send-event!
                           [this event opts])
-                      (send-command!
-                          [this command version user payload])
                       (send-command!
                           [this command version user payload opts])
                       (-send-command!
@@ -58,13 +54,9 @@
   [event cmds]
   ((event-handler (reify comms/Communications
                       (send-event!
-                          [this event version payload])
-                      (send-event!
                           [this event version payload opts])
                       (-send-event!
                           [this event opts])
-                      (send-command!
-                          [this command version user payload])
                       (send-command!
                           [this command version user payload opts])
                       (-send-command!

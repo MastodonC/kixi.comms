@@ -176,9 +176,6 @@
     (when producer-in-ch
       (async/put! producer-in-ch [:event event version nil payload opts])))
 
-  (send-command! [comms command version user payload]
-    (comms/send-command! comms command version user payload {}))
-
   (send-command! [{:keys [producer-in-ch]} command version user payload opts]
     (when producer-in-ch
       (async/put! producer-in-ch [:command command version user payload opts])))
