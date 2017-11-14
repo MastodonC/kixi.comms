@@ -16,12 +16,10 @@
   "send-event opts: command-id
    send-command opts: origin, id"
   (send-event!
-    [this event version payload]
     [this event version payload opts])
   (-send-event!
     [this event opts])
   (send-command!
-    [this command version user payload]
     [this command version user payload opts])
   (-send-command!
     [this command opts])

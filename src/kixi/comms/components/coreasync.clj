@@ -38,34 +38,28 @@
                       id->command-handle-msg-and-process-msg-atom]
   comms/Communications
 
-  (send-event! [comms event version payload]
-    (comms/send-event! comms event version payload {}))
-
   (send-event! [{:keys [event-chan]} event version payload opts]
     (when event-chan
       (debug "# Putting event: " event version)
-      (async/put! event-chan 
+      (async/put! event-chan
                   (msg/format-message :event event version nil payload opts))))
 
-  (-send-event! [{:keys [event-chan]} event opts]    
+  (-send-event! [{:keys [event-chan]} event opts]
     (when event-chan
       (debug "# Putting event: " event)
       (async/put! event-chan event)))
 
-  (send-command! [comms command version user payload]
-    (comms/send-command! comms command version user payload {}))
-
   (send-command! [{:keys [cmd-chan]} command version user payload opts]
     (when cmd-chan
       (debug "# Putting command: " command version)
-      (async/put! cmd-chan 
+      (async/put! cmd-chan
                   (msg/format-message :command command version user payload opts))))
 
   (-send-command! [{:keys [cmd-chan]} command opts]
     (when cmd-chan
       (debug "# Putting command: " command)
       (async/put! cmd-chan command)))
-  
+
   (attach-event-with-key-handler!
     [{:keys [stream-names workers] :as this}
      group-id map-key handler]
@@ -116,7 +110,7 @@
                  :handle-msg  (msg/msg-handler-fn handler
                                                   (partial msg/handle-result this :command))})
       id))
-  
+
   (attach-validating-command-handler!
     [{:keys [stream-names workers] :as this}
      group-id command version handler]
@@ -168,4 +162,3 @@
                   :origin
                   :producer-in-ch))
         component))))
-
