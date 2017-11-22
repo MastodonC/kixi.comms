@@ -1,6 +1,5 @@
 (ns kixi.comms.components.kinesis
   (:require [amazonica.aws.kinesis :as kinesis]
-            [clojure.core.async :as async]
             [com.stuartsierra.component :as component]
             [kixi.comms :as comms]
             [kixi.comms.messages :as msg]
@@ -120,7 +119,7 @@
   (doseq [[f ^Worker w id] workers]
     (deref f)))
 
-(defn old-format-putter
+(defn send-old-format
   [conn stream-names origin msg]
   (let [[stream-name-key _ _ _ _ opts] msg
         stream-name (get stream-names stream-name-key)
@@ -140,7 +139,7 @@
                         partition-key
                         (some-> seq-num str))))
 
-(defn new-format-putter
+(defn send-new-format
   [conn stream-names origin [stream-name-key msg opts]]
   (let [stream-name (get stream-names stream-name-key)
         seq-num (:seq-num opts)]
@@ -152,17 +151,6 @@
                                :kixi.message/origin origin)
                         (:partition-key opts)
                         (some-> seq-num str))))
-
-(defn create-producer
-  [conn stream-names origin in-chan]
-  (async/go
-    (loop []
-      (let [msg (async/<! in-chan)]
-        (when msg
-          (if (= 3 (count msg))
-            (new-format-putter conn stream-names origin msg)
-            (old-format-putter conn stream-names origin msg))
-          (recur))))))
 
 (defn attach-generic-processing-switch
   [config id->handle-msg-and-process-msg-atom]
@@ -191,27 +179,29 @@
 
 (defrecord Kinesis [app-name endpoint dynamodb-endpoint region-name streams
                     origin checkpoint profile kinesis-options
-                    producer-in-chan id->handle-msg-and-process-msg-atom
+                    producer-fn-old-format
+                    producer-fn-new-format
+                    id->handle-msg-and-process-msg-atom
                     id->command-handle-msg-and-process-msg-atom]
   comms/Communications
 
-  (send-event! [{:keys [producer-in-ch]} event version payload opts]
-    (when producer-in-ch
-      (async/put! producer-in-ch [:event event version nil payload opts])))
+  (send-event! [{:keys [producer-fn-old-format]} event version payload opts]
+    (when producer-fn-old-format
+      (producer-fn-old-format [:event event version nil payload opts])))
 
-  (-send-event! [{:keys [producer-in-ch]} event opts]
-    (when producer-in-ch
+  (-send-event! [{:keys [producer-fn-new-format]} event opts]
+    (when producer-fn-new-format
       (debug "# Putting event: " event)
-      (async/put! producer-in-ch [:event event opts])))
+      (producer-fn-new-format [:event event opts])))
 
-  (send-command! [{:keys [producer-in-ch]} command version user payload opts]
-    (when producer-in-ch
-      (async/put! producer-in-ch [:command command version user payload opts])))
+  (send-command! [{:keys [producer-fn-old-format]} command version user payload opts]
+    (when producer-fn-old-format
+      (producer-fn-old-format [:command command version user payload opts])))
 
-  (-send-command! [{:keys [producer-in-ch]} command opts]
-    (when producer-in-ch
+  (-send-command! [{:keys [producer-fn-new-format]} command opts]
+    (when producer-fn-new-format
       (debug "# Putting command: " command)
-      (async/put! producer-in-ch [:command command opts])))
+      (producer-fn-new-format [:command command opts])))
 
   (attach-event-with-key-handler!
     [{:keys [stream-names workers] :as this}
@@ -295,23 +285,28 @@
                                           "com.amazonaws.services.kinesis.leases.*"
                                           "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ShardConsumer"
                                           "com.amazonaws.services.kinesis.clientlibrary.lib.worker.ProcessTask"]})
-    (if-not (:producer-in-ch component)
+    (if-not (:producer-fn-new-format component)
       (let [streams (or streams {:command "command" :event "event"})
-            origin (or origin (try (.. java.net.InetAddress getLocalHost getHostName)
-                                   (catch Throwable _ "<unknown>")))
-            producer-chan      (async/chan)
+            origin (or origin
+                       (try (.. java.net.InetAddress
+                                getLocalHost getHostName)
+                            (catch Throwable _ "<unknown>")))
             id->handle-msg-and-process-msg-atom (atom {})
             id->command-handle-msg-and-process-msg-atom (atom {})
             conn {:endpoint endpoint
-                  :region-name region-name}]
+                  :region-name region-name}
+            producer-f-new-format (partial send-new-format
+                                           conn streams origin)
+            producer-f-old-format (partial send-old-format
+                                           conn streams origin)]
         (info "Starting Kinesis Producer/Consumer")
         (create-streams! conn (vals streams))
-        (create-producer conn streams origin producer-chan)
         (merge
          (assoc component
                 :streams streams
                 :origin origin
-                :producer-in-ch producer-chan
+                :producer-fn-new-format producer-f-new-format
+                :producer-fn-old-format producer-f-old-format
                 :conn conn)
          (when (:event streams)
            {:id->handle-msg-and-process-msg-atom id->handle-msg-and-process-msg-atom
@@ -331,11 +326,10 @@
                                      id->command-handle-msg-and-process-msg-atom)})))
       component))
   (stop [component]
-    (let [{:keys [producer-in-ch]} component]
-      (if (:producer-in-ch component)
+    (let [{:keys [producer-fn]} component]
+      (if (:producer-fn-new-format component)
         (do
           (info "Stopping Kinesis Producer/Consumer")
-          (async/close! producer-in-ch)
           (shutdown-workers! (keep identity
                                    [(:generic-event-worker component)
                                     (:generic-command-worker component)]))
@@ -343,5 +337,6 @@
                   :workers
                   :streams
                   :origin
-                  :producer-in-ch))
+                  :producer-fn-new-format
+                  :producer-fn-old-format))
         component))))
