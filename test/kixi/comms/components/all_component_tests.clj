@@ -4,7 +4,8 @@
              [clojure.spec.test.alpha :as st]
              [com.gfredericks.schpec :as sh]
              [kixi.comms :as comms]
-             [kixi.comms.components.test-base :refer :all]))
+             [kixi.comms.components.test-base :refer :all]
+             [com.stuartsierra.component :as component]))
 
 (def long-session-timeout 10000)
 
@@ -42,6 +43,12 @@
 
 (defmethod kixi.comms/event-payload
   [:test/vfoo-event "1.0.0"]
+  [_]
+  (s/keys :req-un [::test
+                   ::id]))
+
+(defmethod kixi.comms/event-payload
+  [:test/vfoo-g "1.0.0"]
   [_]
   (s/keys :req-un [::test
                    ::id]))
@@ -121,25 +128,28 @@
                                                           :kixi.user/id)
                                        :test "command-invalid-test"
                                        :id id}
-                                      {:partition-key id})))))
-  (testing "Validated command type to event type conditions are applied"
-    (let [result (atom [])
-          id (new-uuid)]
-      (comms/attach-validating-command-handler! component :component-aaa :test/cmd-event-cond "1.0.0"
-                                                #(update (swap-conj-as-event! result %)
-                                                         0
-                                                         (fn [e] (assoc e ::event/version "1.0.1"))))
-      (comms/send-valid-command! component
-                                 {:kixi.message/type :command
-                                  ::command/type :test/cmd-event-cond
-                                  ::command/version "1.0.0"
-                                  :kixi/user user
-                                  :test "validated-command-type-condition-applied"
-                                  :id id}
-                                 {:partition-key id})
-      (is (wait-for-atom
-           result *wait-tries* *wait-per-try*
-           (contains-command-id? id)) id))))
+                                      {:partition-key id}))))))
+
+(defn validated-command-type-to-event-type-conditions
+  "Validated command type to event type conditions are applied"
+  [component opts]
+  (let [result (atom [])
+        id (new-uuid)]
+    (comms/attach-validating-command-handler! component :component-aaa :test/cmd-event-cond "1.0.0"
+                                              #(update (swap-conj-as-event! result %)
+                                                       0
+                                                       (fn [e] (assoc e ::event/version "1.0.1"))))
+    (comms/send-valid-command! component
+                               {:kixi.message/type :command
+                                ::command/type :test/cmd-event-cond
+                                ::command/version "1.0.0"
+                                :kixi/user user
+                                :test "validated-command-type-condition-applied"
+                                :id id}
+                               {:partition-key id})
+    (is (wait-for-atom
+         result *wait-tries* *wait-per-try*
+         (contains-command-id? id)) id)))
 
 (defn event-roundtrip-test
   [component opts]
@@ -359,7 +369,8 @@
   (let [result (atom [])
         values (range 0 50)
         partition-key (new-uuid)]
-    (comms/attach-event-handler! component :component-q :test/foo-d "1.0.0" #(do (swap! result conj (get-in % [:kixi.comms.event/payload :val])) %))
+    (comms/attach-event-handler! component :component-q :test/foo-d "1.0.0"
+                                 #(do (swap! result conj (get-in % [:kixi.comms.event/payload :val])) %))
     (doseq [v values]
       (comms/send-event! component :test/foo-d "1.0.0"
                          {:test "events-are-partitioned"
@@ -417,3 +428,97 @@
     (is (= (count @result)
            (count values)))
     (is (true? (apply < @result)))))
+
+(defn exception-when-unvalidated-event-processing-stops-all-event-processing
+  "Exceptions when processing an event halts the line, the system should not continue as the aggregate could become corrupted"
+  [component opts]
+  (let [result (atom [])
+        values (range 0 50)
+        exception-on-value 25
+        partition-key (new-uuid)]
+    (comms/attach-event-handler! component :component-u
+                                 :test/foo-g
+                                 "1.0.0"
+                                 #(let [val (get-in % [:kixi.comms.event/payload :val])]
+                                    (if (= exception-on-value val)
+                                      (throw (ex-info "Unvalidating Event processing exception"
+                                                      {:val val}))
+                                      (swap! result conj val))
+                                    nil))
+    (doseq [v values]
+      (comms/send-event! component :test/foo-g
+                         "1.0.0"
+                         {:test "event-exception-halts-processing"
+                          :val v}
+                         {:kixi.comms.event/partition-key partition-key}))
+    (wait-for-atom
+     result *wait-tries* *wait-per-try*
+     (constantly false))
+    (is (= exception-on-value
+           (count @result)))
+    (when (= exception-on-value
+             (count @result))
+      (let [component ((:cycle-system opts))]
+        (comms/attach-event-handler! component :component-u
+                                     :test/foo-g
+                                     "1.0.0"
+                                     #(let [val (get-in % [:kixi.comms.event/payload :val])]
+                                        (swap! result conj val)
+                                        nil))
+        (wait-for-atom
+         result *wait-tries* *wait-per-try*
+         #(= (count (distinct %)) (count values)))
+        (let [idempotent-results (distinct @result)]
+          (is (= (count idempotent-results)
+                 (count values)))
+          (is (true? (apply < idempotent-results))))))))
+
+(defn exception-when-validated-event-processing-stops-all-event-processing
+  "Exceptions when processing an event halts the line, the system should not continue as the aggregate could become corrupted"
+  [component opts]
+  (let [result (atom [])
+        values (range 0 50)
+        exception-on-value 25
+        partition-key (new-uuid)
+        id (new-uuid)]
+    (comms/attach-validating-event-handler! component :component-v
+                                            :test/vfoo-g
+                                            "1.0.0"
+                                            #(let [v (:val %)]
+                                               (if (= exception-on-value v)
+                                                 (throw (ex-info "Validating Event processing exception"
+                                                                 {:val v}))
+                                                 (swap! result conj v))
+                                               nil))
+    (doseq [v values]
+      (comms/send-valid-event! component
+                               {:kixi.message/type :event
+                                ::event/type :test/vfoo-g
+                                ::event/version "1.0.0"
+                                ::command/id id
+                                :kixi/user user
+                                :test "validating-event-exception-halts-processing"
+                                :id id
+                                :val v}
+                               {:partition-key partition-key}))
+    (wait-for-atom
+     result *wait-tries* *wait-per-try*
+     (constantly false))
+    (is (= exception-on-value
+           (count @result)))
+    (when (= exception-on-value
+             (count @result))
+      (let [component ((:cycle-system opts))]
+        (comms/attach-validating-event-handler! component :component-v
+                                                :test/vfoo-g
+                                                "1.0.0"
+                                                #(let [v (:val %)]
+                                                   (swap! result conj v)
+                                                   nil))
+        (wait-for-atom
+         result *wait-tries* *wait-per-try*
+         #(= (count (distinct %)) (count values)))
+        (let [idempotent-results (distinct @result)]
+          (is (= (count idempotent-results)
+                 (count values)))
+          (is (true? (apply < idempotent-results))))))))

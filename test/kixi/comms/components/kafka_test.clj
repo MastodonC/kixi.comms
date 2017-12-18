@@ -110,3 +110,8 @@
 
 (deftest kafka-command-produced-events-are-partitioned
   (all-tests/command-produced-events-are-partitioned(:kafka @system)))
+
+(comment "For kafka we wouldn't check for/want all Event processing to stop, just the specific handler"
+         (deftest kafka-exception-when-event-processing-stops-all-event-processing
+           (binding [*wait-per-try* long-wait]
+             (all-tests/exception-when-event-processing-stops-all-event-processing (:kinesis @system) opts))))
