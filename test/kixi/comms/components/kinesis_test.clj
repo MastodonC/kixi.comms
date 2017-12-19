@@ -46,7 +46,6 @@
 (defn cycle-system-fixture*
   [system-func system-atom]
   (fn [all-tests]
-    [all-tests]
     (timbre/with-merged-config
       {:level :info}
       (system-func system-atom)
@@ -78,7 +77,16 @@
                              :endpoint test-kinesis
                              :dynamodb-endpoint test-dynamodb
                              :streams test-stream-names
-                             :metric-level :NONE}))))))
+                             :metric-level :NONE
+                             :max-records 10}))))))
+
+(defn cycle-system
+  "Some tests leave the test system broken, use this to restore it before the test ends"
+  []
+  (component/stop-system @system)
+  (reset! system nil)
+  (kinesis-system system)
+  (:kinesis @system))
 
 (use-fixtures :once (cycle-system-fixture* kinesis-system system))
 
@@ -137,3 +145,22 @@
 (deftest kinesis-command-produced-events-are-partitioned
   (binding [*wait-per-try* long-wait]
     (all-tests/command-produced-events-are-partitioned (:kinesis @system) opts)))
+
+(deftest kinesis-validated-command-type-to-event-type-conditions
+  (binding [*wait-per-try* long-wait]
+    (all-tests/validated-command-type-to-event-type-conditions (:kinesis @system) opts))
+  (cycle-system))
+
+(deftest kinesis-exception-when-unvalidated-event-processing-stops-all-event-processing
+  (binding [*wait-per-try* long-wait]
+    (all-tests/exception-when-unvalidated-event-processing-stops-all-event-processing
+        (:kinesis @system)
+      (assoc opts
+             :cycle-system cycle-system))))
+
+(deftest kinesis-exception-when-validated-event-processing-stops-all-event-processing
+  (binding [*wait-per-try* long-wait]
+    (all-tests/exception-when-validated-event-processing-stops-all-event-processing
+        (:kinesis @system)
+      (assoc opts
+             :cycle-system cycle-system))))

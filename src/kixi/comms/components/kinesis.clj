@@ -3,7 +3,8 @@
             [com.stuartsierra.component :as component]
             [kixi.comms :as comms]
             [kixi.comms.messages :as msg]
-            [taoensso.timbre :as timbre :refer [debug info error]])
+            [taoensso.timbre :as timbre :refer [debug info error fatal]]
+            [clojure.core.async :as async])
   (:import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker))
 
 (def generic-event-worker-postfix "-event-generic-processor")
@@ -99,15 +100,28 @@
 
 (defn create-and-run-worker!
   [msg-handler client-config]
-  (let [full-config (merge
+  (let [shutdown-chan (async/chan)
+        processor (fn [records]
+                    (reduce
+                     (fn [_ data]
+                       (try
+                         (msg-handler data)
+                         true
+                         (catch Throwable e
+                           (fatal e "Processing exception, shutting down Kinesis processor: " data)
+                           (async/>!! shutdown-chan e)
+                           (reduced false))))
+                     true
+                     (map :data records)))
+        full-config (merge
                      default-client-config
                      client-config
-                     {:processor (fn [records]
-                                   (doseq [{:keys [data]} records]
-                                     (msg-handler data))
-                                   true)})
+                     {:processor processor})
         _ (info "Creating worker" full-config)
         [^Worker w id] (kinesis/worker full-config)]
+    (async/go
+      (async/<! shutdown-chan)
+      (.shutdown w))
     (debug "Running worker" id w)
     [(future (.run w)) w id]))
 
@@ -161,11 +175,8 @@
      (doseq [{:keys [process-msg? handle-msg app-name]} (vals @id->handle-msg-and-process-msg-atom)]
                                         ;should process in parrel
        (if (process-msg? msg)
-         (try
-           (debug "# Forwarding last message from" (:stream config)" to handler" app-name)
-           (handle-msg msg)
-           (catch Throwable e
-             (error e "Handler threw an exception:" app-name msg)))
+         (do (debug "# Forwarding last message from" (:stream config)" to handler" app-name)
+             (handle-msg msg))
          (debug "# NOT forwarding last message from" (:stream config)" to handler" app-name))))
    config))
 

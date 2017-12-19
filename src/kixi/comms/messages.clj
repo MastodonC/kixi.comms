@@ -94,10 +94,7 @@
 (defn msg-handler-fn
   [component-handler result-handler]
   (fn [msg]
-    (try
-      (result-handler msg (component-handler msg))
-      (catch Exception e
-        (error e (str "Consumer exception processing msg. Msg: " msg))))))
+    (result-handler msg (component-handler msg))))
 
 (s/def ::command-result
   (let [single-result (s/cat :event map?
