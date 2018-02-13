@@ -4,7 +4,9 @@
             [kixi.comms :as comms]
             [kixi.comms.messages :as msg]
             [taoensso.timbre :as timbre :refer [debug info error fatal]]
-            [clojure.core.async :as async])
+            [clojure.core.async :as async]
+            [clj-time.format :as f]
+            [clj-time.coerce :as time-coerce])
   (:import com.amazonaws.services.kinesis.clientlibrary.lib.worker.Worker))
 
 (def generic-event-worker-postfix "-event-generic-processor")
@@ -98,6 +100,14 @@
   {:checkpoint false
    :initial-position-in-stream-date (java.util.Date.)})
 
+(defn ensure-arg-types
+  [client-config]
+  (if (:initial-position-in-stream-date client-config)
+    (update client-config
+            :initial-position-in-stream-date
+            #(time-coerce/to-date (f/parse (f/formatters :basic-date-time-no-ms)) %))
+    client-config))
+
 (defn create-and-run-worker!
   [msg-handler client-config]
   (let [shutdown-chan (async/chan)
@@ -115,7 +125,7 @@
                      (map :data records)))
         full-config (merge
                      default-client-config
-                     client-config
+                     (ensure-arg-types client-config)
                      {:processor processor})
         _ (info "Creating worker" full-config)
         [^Worker w id] (kinesis/worker full-config)]
