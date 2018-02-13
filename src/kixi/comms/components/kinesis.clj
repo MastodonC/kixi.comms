@@ -105,7 +105,7 @@
   (if (:initial-position-in-stream-date client-config)
     (update client-config
             :initial-position-in-stream-date
-            #(time-coerce/to-date (f/parse (f/formatters :basic-date-time-no-ms)) %))
+            #(time-coerce/to-date (f/parse (f/formatters :basic-date-time-no-ms) %)))
     client-config))
 
 (defn create-and-run-worker!
