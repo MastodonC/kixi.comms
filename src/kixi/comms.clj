@@ -7,6 +7,8 @@
             [kixi.types :as types]))
 
 (def ^:dynamic *verbose-logging* false)
+(def ^:dynamic *validate-commands* true)
+(def ^:dynamic *validate-events* true)
 
 (defn set-verbose-logging!
   [v]
@@ -88,7 +90,7 @@
                                (uuid))
                            :kixi.message/type :command
                            ::command/created-at (timestamp))]
-    (when-not (s/valid? :kixi/command cmd-with-id)
+    (when (and *validate-commands* (not (s/valid? :kixi/command cmd-with-id)))
       (throw (ex-info "Invalid command" (s/explain-data :kixi/command cmd-with-id))))
     (when-not (s/valid? ::command/options opts)
       (throw (ex-info "Invalid command options" (s/explain-data ::command/options opts))))
@@ -128,7 +130,7 @@
   (let [event-extra (merge {::event/id (uuid)}
                            event
                            {::event/created-at (timestamp)})]
-    (when-not (s/valid? :kixi/event event-extra)
+    (when (and *validate-events* (not (s/valid? :kixi/event event-extra)))
       (throw (ex-info "Invalid event-extra" (s/explain-data :kixi/event event-extra))))
     (when-not (s/valid? ::event/options opts)
       (throw (ex-info "Invalid event-extra options" (s/explain-data ::event/options opts))))
