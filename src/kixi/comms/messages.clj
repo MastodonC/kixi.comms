@@ -192,7 +192,6 @@
                                          (event-result->commands result))]
           (validate-commands event conformed-result)
           (doseq [{:keys [cmd opts]} conformed-result]
-            (println "OMG WE ARE SENDING THIS" cmd)
             (comms/send-valid-command! comms-component
                                        cmd
                                        opts)))))))
