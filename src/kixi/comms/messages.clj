@@ -163,9 +163,7 @@
       (when-not (allowed-cmd-types ((juxt ::cmd/type ::cmd/version) cmd))
         (throw (ex-info "Invalid event result" {:allowed-command-types allowed-cmd-types
                                                 :event-type ((juxt ::event/type ::event/version) event)
-                                                :returned-command-type ((juxt ::cmd/type ::cmd/version) cmd)})))
-      (when-not (s/valid? :kixi/command cmd)
-        (throw (ex-info "Invalid command" (s/explain-data :kixi/command cmd)))))))
+                                                :returned-command-type ((juxt ::cmd/type ::cmd/version) cmd)}))))))
 
 (defn event-result->commands
   [result]
@@ -181,10 +179,7 @@
             (merge command
                    (select-keys event
                                 [:kixi/user
-                                 ::event/id])
-                   {:kixi.message/type :command
-                    ::cmd/id (uuid)
-                    ::cmd/created-at (comms/timestamp)}))))
+                                 ::event/id])))))
 
 (defn event-handler
   [comms-component service-event-handler]
