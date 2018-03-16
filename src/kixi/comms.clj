@@ -71,8 +71,9 @@
 (s/def :kixi/command
   (s/and
    (s/merge ::command/payload
-            (s/keys :req [::msg/type
-                          ::command/id
+            (s/keys :req [::msg/type]
+                    :gen #(gen/return {::msg/type :command}))
+            (s/keys :req [::command/id
                           ::command/type
                           ::command/version
                           ::command/created-at
@@ -113,8 +114,9 @@
 (s/def :kixi/event
   (s/and
    (s/merge ::event/payload
-            (s/keys :req [::msg/type
-                          ::event/type
+            (s/keys :req [::msg/type]
+                    :gen #(gen/return {::msg/type :event}))
+            (s/keys :req [::event/type
                           ::event/version
                           ::event/created-at
                           ::event/id
