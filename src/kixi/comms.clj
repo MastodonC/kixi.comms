@@ -1,5 +1,6 @@
 (ns kixi.comms
   (:require [clojure.spec.alpha :as s]
+            [clojure.spec.gen.alpha :as gen]
             [com.gfredericks.schpec :as sh]
             [clj-time.core :as time]
             [clj-time.format :as tf]
