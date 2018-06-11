@@ -69,9 +69,9 @@ components --> [::schema] : uses
 |---------------------------------+------------------------------------------------------------------------------------------------------|
 | kixi.comms                      | Defines protocol for Communications component, certain specs and helper functions                    |
 | kixi.comms.messages             | Provides boilerplate functions for implementations; covers the Command->Event chain, validation etc. |
-| kixi.comms.components.kinesis   | Implementation of Communications protocol on top of Amazon Kinesis                                   |
-| kixi.comms.components.kafka     | Implementation of Communications protocol on top of Kafka                                            |
-| kixi.comms.components.coreasync | Implementation of Communications protocol using core.async, for single-process testing               |
+| kixi.comms.components.kinesis   | Implementation of Communications protocol on top of Amazon Kinesis (working)                         |
+| kixi.comms.components.kafka     | Implementation of Communications protocol on top of Kafka (not working, needs updating)              |
+| kixi.comms.components.coreasync | Implementation of Communications protocol using core.async, for single-process testing (working)     |
 
 The goal of the library is to provide a component that can be dropped straight into any application using [[https://github.com/stuartsierra/component][Stuart sierra's Component library]]. The ~kixi.comms~ namespace defines
 a protocol called 'Communications' which is implemented by the Kinesis, Kafka and CoreAsync namespaces. The protocol provides functions so that the component can perform
