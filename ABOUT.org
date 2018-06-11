@@ -1,0 +1,111 @@
+* kixi.comms
+
+**** June 2018
+
+/This document assumes familiarity with the Witan architecture, CQRS and event-sourcing./
+
+*kixi.comms* (aka 'Comms') is a library used by all of the microservices in the Witan suite. Its goal is to connect the microservice to the central
+message queues used by the suite. The library performs a number of roles to make this happen:
+
+- Abstracting the message queue of choice - currently Kinesis, used to be Kafka.
+- Providing boilerplate for managing connection primitives.
+- Enforcing the CQRS/ES mechanism by providing an API for Command and Event 'handlers'
+- Using ~clojure.spec~ to validate Commands and Events
+- Using multimethods to validate result expectations (Commands declare which Events they're allowed to produce).
+
+** History
+
+Following Witan Alpha, the decision was made to pursue the CQRS/ES application architecture for microservices in the future. At the time Kafka was the
+message queue of choice and so experimentation was done to integrate Kafka consumers into the microservices that existed at that time (Datastore and
+Workspaces). It became obvious that each service would end up repeating a lot of the same code and so ~kixi.comms~ was implemented to tackle that problem
+specifically. The goal was a library that helped microservices get on the message queue quickly and also provided an API for the CQRS/ES mechanism.
+
+In March 2017, an initiative began to move parts of the Witan suite to using Amazon products. Kafka was to be replaced with Kinesis. Up until that point
+~kixi.comms~ was written specifically for Kafka and so a rewrite happened. This became the 0.2.x series.
+
+In August 2017, it was decided that the data structure for messages (Commands and Events) was flawed and so a new structure was devised and introduced to
+~kixi.comms~. Work was done to validate the new structure using ~clojure.spec~ and this meant the API now needed to support 'old' message and 'new'
+message types.
+
+** Library Structure Diagram
+
+
+#+BEGIN_SRC plantuml :file docs/components.png :results silent
+package "kixi.comms library" {
+  package "kixi.comms" {
+    [::comms]
+    [::messages]
+    [::schema]
+    [::time]
+    package "components" {
+      [::components/kafka]
+      [::components/kinesis]
+      [::components/coreasync]
+    }
+  }
+  [::types]
+  [::data-types]
+}
+
+' Connections
+[::comms] ..> components : implemented by
+components --> [::messages] : uses
+components --> [::time]  : uses
+components --> [::schema] : uses
+[::schema] -> [::time]
+
+[::comms] -> [::data-types]
+[::data-types] -left-> [::types]
+
+#+END_SRC
+
+[[file:docs/components.png]]
+
+~kixi.comms~ is quite a small library and structurally quite obvious. It's not immediately clear why the ~::types~ and ~::data-types~ namespaces fall outside of the core package.
+
+*** Summary
+
+| Key Namespaces                  | Description                                                                                          |
+|---------------------------------+------------------------------------------------------------------------------------------------------|
+| kixi.comms                      | Defines protocol for Communications component, certain specs and helper functions                    |
+| kixi.comms.messages             | Provides boilerplate functions for implementations; covers the Command->Event chain, validation etc. |
+| kixi.comms.components.kinesis   | Implementation of Communications protocol on top of Amazon Kinesis                                   |
+| kixi.comms.components.kafka     | Implementation of Communications protocol on top of Kafka                                            |
+| kixi.comms.components.coreasync | Implementation of Communications protocol using core.async, for single-process testing               |
+
+The goal of the library is to provide a component that can be dropped straight into any application using [[https://github.com/stuartsierra/component][Stuart sierra's Component library]]. The ~kixi.comms~ namespace defines
+a protocol called 'Communications' which is implemented by the Kinesis, Kafka and CoreAsync namespaces. The protocol provides functions so that the component can perform
+actions such as sending events or commands. There are also functions in the namespace for sending /valid/ commands and events, which applies to the 'new' style messages, where
+they are checked against a spec before being dispatched.
+
+Because a lot of the code is shared between the implementations, ~kixi.comms.messages~ does a fair job of isolating the logic that adheres to commands, events and validation
+and therefore the implementations can use these functions to add those features on top of their underlying message queue.
+
+~kixi.comms.components.coreasync~ is a good example of a small implementation - it's only intended to be used during testing. Obviously it's much quicker than calling out to
+Kinesis or Kafka.
+~kixi.comms.components.kinesis~ is the currently deployed implementation.
+
+*** Testing
+
+The tests are nicely abstracted to a point where they are implementation-agnostic and then each implementation has a test namespace where they reference the 'all' tests.
+See ~kixi.comms.components.all-component-tests~ for the bulk of the integration tests.
+
+There is also a handful of unit tests dotted around, but the tests could benefit from better organisation.
+
+*** Honourable Mentions
+**** franzy
+Mastodon C has their own version of ~franzy~, a Kafka library, due to it being abandoned by its original author.
+
+** Future
+
+*** Adding new features
+
+At some point it's likely there will be a return to the Kafka implementation which has long been neglected and is in need of fixing. Fortunately all the
+tests are in place and so fixing it, or even adding a new MQ implementation, should be able to benefit from these tests.
+
+In terms of other new features it's hard to predict the direction that the library will go, but the code base is mature enough that it should stand up for
+a while yet.
+
+*** Long-term plan
+
+It's unclear what the long-term plan is.
